@@ -1,16 +1,30 @@
 
 // This is Ido Nir's P2P shell chat.
 
-//Program rational:
-//	Design comments : The program should start by opening the client's side. 
+//	Program rational:
+//	Design comments :The program should start by opening the client's side. 
 //	One user will start the chat and send an invitation to a certain IP(using the client side),
 //	and the second user should choose to wait('listen()') for a connection(using the server side).
 //	After the connection will be created, each user will choose a nickname for the chat screen.
 //	After a connection will be created, the serverand the client will run simultaniously - The users
 //	will send a message using the client side, and recieve messages using the server side.
 
+enum error_codes { // Fill in this shit later.
+	EXIT_SUCCESS,		// Finished successfully.
+	SOCK_FAILED,		// Socket failed.
+	BIND_FAILED,		// Bind failed.
+	CONNECTION_FAILED,	// Connection to destination's server has failed.
+	WSA_FAILED 			// WSA module initialize failed.
+};
 // Error code meaning for each value the program can return:
-// Value:	0	| Meaning: finished successfully.
+// Value:	0	| Finished successfully.
+// Value:	1	| Socket failed.
+// Value:	2	| Bind failed.
+// Value:	3	| Connection to destination's server has failed.
+// Value:	4	| WSA module initialize failed.
+// Value:	5	| 
+
+// Do Not mind this
 // Value:	1	| Meaning: User called for help.
 // Value:	2	| Meaning: IP address that user has input was invalid.
 // Value:	3	| Meaning: Bind of this PC's server has failed.
@@ -20,24 +34,119 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string.h>
+#include <windows.h>
 
-#define PORT 6666
-#define IP "127.0.0.1"
+#define PORT_IN 6666
+#define PORT_OUT 6667
+#define IP_SELF "127.0.0.1"
+#define IP_DEST "127.0.0.1"
 
-#pragma comment(lib,"ws2_32.lib") //winsock library
+#define NAME_LENGTH (20)
+#define IP_ADDR_BUF_SIZE 16
+
+#pragma comment(lib,"ws2_32.lib") // Winsock library
 #pragma warning(disable:4996) // In order to use inet_addr() in Visual Studio, we must disable this warning.
+
+// All structures:
+typedef struct user
+{
+	// User will input a nickname that will be shows in-chat.
+	char nickname[NAME_LENGTH];
+
+	// The user's Instance for the 'sockaddr_in' struct which includes the 
+	// address' family (AF_INET in this case), IP address, and port number.
+	struct sockaddr_in* client;
+	struct sockaddr_in* server;
+
+	// Create a TCP socket for client and server side:
+	SOCKET server_socket;
+	SOCKET client_socket;
+
+	// Key for future encryption feature.
+	char* key;
+}user;
+typedef struct sockaddr_in sockaddr_in;
+
+// Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
+void init_user(user* self, char* ip, int port_in, int port_out, char* key);
+void bind_error_code(int bind_code);
+void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, int port);
+
+// All functions:
+void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
+{
+	// Initialize Windows Socket module
+	printf("Initialising Windows Socket module: \n");
+	if (WSAStartup(MAKEWORD(1, 1), wsaData) != 0)
+	{
+		printf(stderr, "WSA Startup failed.\n");
+		exit(4);
+	}
+	printf("WSA Initialised.\n");
+}
 
 char intro()
 { 
 	printf("Welcome to Ido Nir's P2P Secure Chat!\n");
-	printf("Please enter 'h' to be the hosst, or 'g' to be the guest: ");
+	printf("Please enter 'h' to be the host, or 'g' to be the guest: ");
 	char choice;
 	do
 	{
-		scanf_s("%c", &choice);
+		scanf_s(" %c", &choice, 1);
 	} while (choice != 'g' && choice != 'G' && choice != 'h' && choice != 'H');
 
 	return choice;
+}
+
+void init_user(user* self, char* ip, int port_in, int port_out, char* key)
+{
+	// Initialize the nickname to be the user's input.
+	printf("Please enter a nickname that is up to %d characters: ", NAME_LENGTH);
+	gets_s(self->nickname, NAME_LENGTH);
+
+	// Initialize the user's client end 'sockaddr_in' instance 'self'.
+	init_sockaddr_in(self->client, ip, port_out);
+	// Initialize the user's end server 'sockaddr_in' instance 'self'.
+	init_sockaddr_in(self->server, ip, port_in);
+	
+	// Initialize Encryption key.
+	self->key = key;
+
+	// Initialize client and server sockets.
+	self->client_socket= socket(AF_INET, SOCK_STREAM, 0);
+	self->server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+	// Sockets error check:
+	if (self->client_socket == -1) // If socket could not be created:
+	{
+		printf("The client socket could not be created!\n");
+		exit(SOCK_FAILED);
+	}
+	if (self->server_socket == -1) // If socket could not be created:
+	{
+		printf("The server socket could not be created!\n");
+		exit(SOCK_FAILED);
+	}
+
+	// Bind sockets
+	int bind_client = bind(self->client_socket, self->client, sizeof(self->client));
+	int bind_server = bind(self->client_socket, self->server, sizeof(self->server));
+
+	// Sockets error check:
+	if (bind_client != 0)
+	{
+		printf("Bind of user's client has failed.\n");
+		bind_error_code(bind_client);
+		exit(2);
+
+	}
+	if (bind_server != 0)
+	{
+		printf("Bind of user's server has failed.\n");
+		bind_error_code(bind_server);
+		exit(2);
+
+	}
 }
 
 void bind_error_code(int bind_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
@@ -110,14 +219,14 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 	}
 }
 
-void init_sockaddr(struct sockaddr_in* sa_in, char* address) // This function recieves a pointer to the 'sockaddr_in' instance and an IP address and initialises the sever's address.
+void init_sockaddr_in(sockaddr_in* sa_in, char* address, int port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
 {
 	
 	sa_in->sin_family = AF_INET;	// We want our server to connect over an IPV4 Internet connection. 
 										// The type of our address, AKA the address' family is AF_INET, 
 										// which represents the IPV4 Internet connection. 
 
-	sa_in->sin_port = htons(PORT); // We set the port which we want the server to send data from. 
+	sa_in->sin_port = htons(port); // We set the port which we want the server to send data from. 
 										// The function 'htons()': casts a short from Host to Network Byte Order-
 										// Host-TO-Network-Short .The usual way that we read a number in binary,
 										// which is that the first (most left) digit represents the biggest/most
@@ -139,105 +248,102 @@ void init_sockaddr(struct sockaddr_in* sa_in, char* address) // This function re
 	// there's no need to use the 'htons' function.
 }
 
-int main(int argc, char* argv[])
+int ip_valid(char* ip) // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
 {
-	// Help function for user:
-	/*if (strcmp(argv[1], "help"))
-	{
-		help();
-		return 1;
-	}*/
-
-	// Check if given IP address is valid:
-	char* ip = IP; // After finishing testing, change to argv[1].
-	if (inet_addr(ip) == -1)			// Error check to see if the given ip address is invalid.
+	if (inet_addr(ip) == -1)			
 	{
 		printf("Error! Given IP address is invalid! \n");
-		return 2;
+		return 0;
 	}
 
-	// Initialize Windows Socket module
-	printf("Initialising Windows Socket module: \n");
-	WSADATA wsaData; // if this doesn’t work
-	if (WSAStartup(MAKEWORD(1, 1), &wsaData) != 0)
-	{
-		printf(stderr, "WSA Startup failed.\n");
+	return 1;
+}
+
+int port_valid(int port) // Function checks if given port is valid. If valid return 1, else return 0.
+{
+	if (port >= 0 && port <= 65536)
 		return 1;
-	}
-	printf("WSA Initialised.\n");
+
+	return 0;
+}
+
+sockaddr_in invite() // When this function is called it asks the user for an IP address which he wants to invite and returns it.
+{
+	sockaddr_in dest_server;
 	
-	char side = intro();
-	// User chose to be the host:
-	if (side == 'h' || side == 'H') 
+	char ip[IP_ADDR_BUF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
+	int port; // Port of Destination.
+
+	// Recieve IP address of destination from user.
+	do
 	{
-		// Create a TCP socket for client and server side:
-		SOCKET server_socket = socket(AF_INET, SOCK_STREAM, 0);
-		SOCKET client_socket = socket(AF_INET, SOCK_STREAM, 0);
+		printf("Insert an IP address you want to invite: ");
+		gets_s(&ip, sizeof(ip));
+	} while (!ip_valid(ip));
 
-		// Socket error check:
-		if (server_socket == INVALID_SOCKET || client_socket == INVALID_SOCKET)
-		{
-			if (server_socket == INVALID_SOCKET)
-				printf("Error! The socket 'server_socket' could not be created!\n");
-			if (client_socket == INVALID_SOCKET)
-				printf("Error! The socket 'client_socket' could not be created!\n");
-			else
-				printf("Error! An unknown error has occurred in the socket error check.\n");
+	// Recieve port of destination from user.
+	do
+	{
+		printf("Insert the port of the user you want to invite: ");
+		scanf_s("%d", &port);
+	} while (!port_valid(port));
 
-			return 1;
-		}
-		else
-			printf("Sockets created successfully.\n");
+	init_sockaddr_in(&dest_server, ip, port);
+	return dest_server;
+}
 
-		// Define the server address' properties:
-		struct sockaddr_in server_address;
-		init_sockaddr(&server_address, ip); // Initialize 'server_address'.
+void start_host(user* me)
+{	
+	// Create a 'sockaddr_in' instance for the server of the destination.
+	sockaddr_in dest = invite();	
 
-		// Bind between the socket and the server, and then check for errors:
-		int bind_code = bind(server_socket, &server_address, sizeof(server_address));
-		if (bind_code != 0) // The 'bind()' function returns zero if the bind was successful.
-		{
-			printf("The bind of the socket and the server failed.\n");
-			bind_error_code(bind_code);
-			return 3;
-		}
+	// Connect the local client socket to the remote server socket.
+	if (connect(me->client_socket, (struct sockaddr*) &dest, sizeof(dest)) != 0) {
+		printf("Connection with the server of destination has failed!\n");
+		exit(3);
+	}
+	printf("Connected to destination successfully.\n");
+	
+	// At this point, user->client_socket is connected to 'server_socket' at the destination.
+}
 
-		// Define the client address' properties:
-		struct sockaddr_in client_address;
-		init_sockaddr(&client_address, ip); // Initialize 'client_address'.
+SOCKET* start_guest(user* chat_user)
+{
+	SOCKET new_socket;
+	struct sockaddr_in client;
+	int size_of_sockaddr = sizeof(struct sockaddr_in);
+	if (listen(chat_user->server_socket, 1) == SOCKET_ERROR)
+        printf(L"listen function failed with error: %d\n", WSAGetLastError());
+	new_socket = accept(chat_user->server_socket, (struct sockaddr *)&client, &size_of_sockaddr);
+}
 
-		// Connect to server of other peer.
-		if (connect(client_socket, &client_address, sizeof(client_address)) != 0)
-		{
-			printf("Connection with server of other user has failed.\n");
-			return 4;
-		}
+void terminate_connection(user* me) // This function terminates the connection of a user by closing sockets.
+{
+	closesocket(me->server_socket);
+	closesocket(me->client_socket);
+}
 
-		// Close all sockets.
-		closesocket(server_socket);
-		closesocket(client_socket);
+// Main function:
+int main(int argc, char* argv[])
+{
+	char choice = intro();
+
+	WSADATA wsaData; // Create an instance of the WSADATA struct.
+	init_WSA(&wsaData); //  Initialize the WSADATA instance.
+
+	user chat_user; // Create an instance for the user running the program.
+
+	if (choice == 'h' || choice == 'H') // Start host side:
+	{
+		start_host();
 	}
 
-	// User chose to be the guest:
-	if (side == 'g' || side == 'G')
+	else // Start guest side:
 	{
-
+		init_user(&chat_user, IP_SELF, PORT_IN, PORT_OUT, NULL);
+		//start_guest();
 	}
 
-	/*
-
-	What else needs to be done:
-
-	0. Recieve the IP address and the port which they want to communicate on. Probably should happen on the client side.
-	1. Use the listen() function to wait for a connection to happen. Print a relevant message to let the user know it.
-	2. Use the accept() function to accept the connection. I recommend to check if the IP trying to make the connection is authorized.
-		Print a relevant message to let the user what's happenning.
-	3. Recieve a message using the recieve() function, and print the message.
-	4. Make the user choose whether to leave the chat, or send a message back.
-	5. If the user chose to send a message back, call the client side to send back a message.
-	6. Future option: create a .txt file that a log of all the actions that happened in the chat.
-
-	*/
 
 	return 0;
 }
