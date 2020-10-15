@@ -16,6 +16,7 @@ enum error_codes { // Fill in this shit later.
 	CONNECTION_FAILED,	// Connection to destination's server has failed.
 	WSA_FAILED 			// WSA module initialize failed.
 };
+
 // Error code meaning for each value the program can return:
 // Value:	0	| Finished successfully.
 // Value:	1	| Socket failed.
@@ -38,9 +39,8 @@ enum error_codes { // Fill in this shit later.
 
 #define PORT_IN 6666
 #define PORT_OUT 6667
-#define IP_SELF "127.0.0.1"
-#define IP_DEST "127.0.0.1"
-
+#define IP_LOCAL "127.0.0.1"
+#define IP_REMOTE "127.0.0.1"
 #define NAME_LENGTH (20)
 #define IP_ADDR_BUF_SIZE 16
 
@@ -53,18 +53,18 @@ typedef struct user
 	// User will input a nickname that will be shows in-chat.
 	char nickname[NAME_LENGTH];
 
-	// The user's Instance for the 'sockaddr_in' struct which includes the 
-	// address' family (AF_INET in this case), IP address, and port number.
-	struct sockaddr_in* client;
-	struct sockaddr_in* server;
+	// The local user's server's address, which includes the address'
+	// family (AF_INET in this case), IP address, and port number.
+	struct sockaddr_in server;
 
-	// Create a TCP socket for client and server side:
-	SOCKET server_socket;
-	SOCKET client_socket;
+	SOCKET server_socket; // Is used only for creating connections. Is used only to create one connection at a time.
+	SOCKET* client_sockets; // Array of sockets used for sending and recieving data to multiple peers.
+	int num_clients; // The number of clients currently connected to local user.
 
 	// Key for future encryption feature.
 	char* key;
 }user;
+
 typedef struct sockaddr_in sockaddr_in;
 
 // Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
@@ -83,70 +83,6 @@ void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADA
 		exit(4);
 	}
 	printf("WSA Initialised.\n");
-}
-
-char intro()
-{ 
-	printf("Welcome to Ido Nir's P2P Secure Chat!\n");
-	printf("Please enter 'h' to be the host, or 'g' to be the guest: ");
-	char choice;
-	do
-	{
-		scanf_s(" %c", &choice, 1);
-	} while (choice != 'g' && choice != 'G' && choice != 'h' && choice != 'H');
-
-	return choice;
-}
-
-void init_user(user* self, char* ip, int port_in, int port_out, char* key)
-{
-	// Initialize the nickname to be the user's input.
-	printf("Please enter a nickname that is up to %d characters: ", NAME_LENGTH);
-	gets_s(self->nickname, NAME_LENGTH);
-
-	// Initialize the user's client end 'sockaddr_in' instance 'self'.
-	init_sockaddr_in(self->client, ip, port_out);
-	// Initialize the user's end server 'sockaddr_in' instance 'self'.
-	init_sockaddr_in(self->server, ip, port_in);
-	
-	// Initialize Encryption key.
-	self->key = key;
-
-	// Initialize client and server sockets.
-	self->client_socket= socket(AF_INET, SOCK_STREAM, 0);
-	self->server_socket = socket(AF_INET, SOCK_STREAM, 0);
-
-	// Sockets error check:
-	if (self->client_socket == -1) // If socket could not be created:
-	{
-		printf("The client socket could not be created!\n");
-		exit(SOCK_FAILED);
-	}
-	if (self->server_socket == -1) // If socket could not be created:
-	{
-		printf("The server socket could not be created!\n");
-		exit(SOCK_FAILED);
-	}
-
-	// Bind sockets
-	int bind_client = bind(self->client_socket, self->client, sizeof(self->client));
-	int bind_server = bind(self->client_socket, self->server, sizeof(self->server));
-
-	// Sockets error check:
-	if (bind_client != 0)
-	{
-		printf("Bind of user's client has failed.\n");
-		bind_error_code(bind_client);
-		exit(2);
-
-	}
-	if (bind_server != 0)
-	{
-		printf("Bind of user's server has failed.\n");
-		bind_error_code(bind_server);
-		exit(2);
-
-	}
 }
 
 void bind_error_code(int bind_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
@@ -219,6 +155,71 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 	}
 }
 
+char intro()
+{ 
+	printf("Welcome to Ido Nir's P2P Secure Chat!\n");
+	printf("Please enter 'h' to be the host, or 'g' to be the guest: ");
+	char choice;
+	do
+	{
+		scanf_s(" %c", &choice, 1);
+	} while (choice != 'g' && choice != 'G' && choice != 'h' && choice != 'H');
+
+	return choice;
+}
+
+void init_user(user* local, char* self_ip, int accept_port, char* key)
+{
+	// Initialize the nickname to be the user's input.
+	printf("Please enter a nickname that is up to %d characters: ", NAME_LENGTH);
+	gets_s(local->nickname, NAME_LENGTH);
+
+	// Initialize the user's end server 'sockaddr_in' instance 'self'.
+	init_sockaddr_in(&(local->server), self_ip, accept_port);	// Here we create the local server's address:
+																// We input the init_sockaddr_in function a
+																// pointer to the address we want to change 
+																// (to change it by reference), the IPV4 address
+																// that the local user wants other users to connect
+																// to, and the port he wants to open for the accept
+																// to happen.
+	
+	// Initialize Encryption key.
+	local->key = key; // We copy the key given in the parameters field by refference.
+
+	// Initialize client and server sockets.
+	local->client_sockets = NULL;							// Here we initialize the sockets array to null. 
+															// We'll later use those sockets to send and 
+															// recieve data to other users. We'll create
+															// sockets in this array using the 'invite' function,
+															// or if invited- the 'accept' function will return a
+															// new client socket.
+	
+	local->num_clients = 0;									// Here we initialize the size of the array of client sockets to 0 since its null
+															// thus contains no items.
+
+	local->server_socket = socket(AF_INET, SOCK_STREAM, 0); // Here we initialize the socket that we use only 
+															// to accept connections from other users.
+
+	// If socket could not be created:
+	if (local->server_socket == -1) 
+	{
+		printf("The server socket could not be created!\n");
+		exit(SOCK_FAILED);
+	}
+
+	// Bind sockets
+	int bind_server = bind(local->server_socket, &(local->server), sizeof(local->server));
+
+	// Socket error check:
+	if (bind_server != 0)
+	{
+		printf("Bind of user's server has failed.\n");
+		bind_error_code(bind_server);
+		closesocket(local->server_socket);
+		exit(BIND_FAILED);
+	}
+}
+
 void init_sockaddr_in(sockaddr_in* sa_in, char* address, int port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
 {
 	
@@ -269,52 +270,78 @@ int port_valid(int port) // Function checks if given port is valid. If valid ret
 
 sockaddr_in invite() // When this function is called it asks the user for an IP address which he wants to invite and returns it.
 {
-	sockaddr_in dest_server;
+	sockaddr_in remote_server;
 	
-	char ip[IP_ADDR_BUF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
-	int port; // Port of Destination.
+	char remote_ip[IP_ADDR_BUF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
+	int remote_port; // Port of Destination.
 
 	// Recieve IP address of destination from user.
 	do
 	{
 		printf("Insert an IP address you want to invite: ");
-		gets_s(&ip, sizeof(ip));
-	} while (!ip_valid(ip));
+		gets_s(&remote_ip, sizeof(remote_ip));
+	} while (!ip_valid(remote_ip));
 
 	// Recieve port of destination from user.
 	do
 	{
 		printf("Insert the port of the user you want to invite: ");
-		scanf_s("%d", &port);
-	} while (!port_valid(port));
+		scanf_s("%d", &remote_port);
+	} while (!port_valid(remote_port));
 
-	init_sockaddr_in(&dest_server, ip, port);
-	return dest_server;
+	init_sockaddr_in(&remote_server, remote_ip, remote_port);
+	return remote_server;
 }
 
-void start_host(user* me)
+void start_host(user* local)
 {	
 	// Create a 'sockaddr_in' instance for the server of the destination.
-	sockaddr_in dest = invite();	
+	sockaddr_in remote = invite();	
 
 	// Connect the local client socket to the remote server socket.
-	if (connect(me->client_socket, (struct sockaddr*) &dest, sizeof(dest)) != 0) {
+	if (connect(local->client_socket, (struct sockaddr*) &remote, sizeof(remote)) != 0) {
 		printf("Connection with the server of destination has failed!\n");
-		exit(3);
+		exit(CONNECTION_FAILED);
 	}
 	printf("Connected to destination successfully.\n");
-	
 	// At this point, user->client_socket is connected to 'server_socket' at the destination.
 }
 
-SOCKET* start_guest(user* chat_user)
+void start_guest(user* local)
 {
 	SOCKET new_socket;
 	struct sockaddr_in client;
 	int size_of_sockaddr = sizeof(struct sockaddr_in);
-	if (listen(chat_user->server_socket, 1) == SOCKET_ERROR)
-        printf(L"listen function failed with error: %d\n", WSAGetLastError());
-	new_socket = accept(chat_user->server_socket, (struct sockaddr *)&client, &size_of_sockaddr);
+	if (listen(local->server_socket, 0) == SOCKET_ERROR) 
+	{
+        printf("Listen function failed with error: %d\n", WSAGetLastError());
+		return NULL; // should we return null?
+	}
+
+	// 'new_socket' is the socket that we use to connect to the user that we have just accepted.
+	new_socket = accept(local->server_socket, (struct sockaddr *)&client, &size_of_sockaddr); 
+	
+	// Insert the new socket to the array of sockets inside the local user's struct, an increment the size of the array by 1.
+	(local->num_clients)++; // Increment the size of the client-sockets array by one.
+	local->client_sockets = (SOCKET*)realloc(local->client_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+
+	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
+	local->client_sockets[local->num_clients - 1] = new_socket; 
+}
+
+void accept_new_connection()
+{
+
+}
+
+void host(user* local)
+{
+	start_host(local);
+}
+
+void guest(user* local)
+{
+	start_guest(local);
 }
 
 void terminate_connection(user* me) // This function terminates the connection of a user by closing sockets.
@@ -333,16 +360,7 @@ int main(int argc, char* argv[])
 
 	user chat_user; // Create an instance for the user running the program.
 
-	if (choice == 'h' || choice == 'H') // Start host side:
-	{
-		start_host();
-	}
-
-	else // Start guest side:
-	{
-		init_user(&chat_user, IP_SELF, PORT_IN, PORT_OUT, NULL);
-		//start_guest();
-	}
+	// Here we need to start running host nd guest simultaneously
 
 
 	return 0;
