@@ -17,7 +17,7 @@ enum error_codes { // Fill in this shit later.
 #include <windows.h>
 
 #define USERNAME_MAX_LENGTH 20
-#define IP_ADDR_BUF_SIZE 16
+#define IP_ADDR_BUFF_SIZE 16
 #define MESSAGE_BUFF_MAX 512 
 #define TIME_SIZE 8
 #define KEY NULL
@@ -31,8 +31,8 @@ typedef struct User
 	// User will input a username that will be shows in-chat.
 	char username[USERNAME_MAX_LENGTH];
 
-	//// The local user's server's address, which includes the address'
-	//// family (AF_INET in this case), IP address, and port number.
+	// The local user's server's address, which includes the address'
+	// family (AF_INET in this case), IP address, and port number.
 	struct sockaddr_in server_addr;
 
 	SOCKET server_socket; // Is used only for creating connections. Is used only to create one connection at a time.
@@ -48,9 +48,9 @@ typedef struct User
 typedef struct sockaddr_in sockaddr_in;
 
 // Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
-void init_user(User* self, char* ip, int port_in, int port_out, char* key);
+void init_user(User* self);
 void bind_error_code(int bind_code);
-void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, int port);
+void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, unsigned short port);
 void get_time(char* buf, size_t buf_size);
 char* get_username();
 
@@ -195,7 +195,7 @@ void init_sockaddr_in(sockaddr_in* sa_in, char* ip, unsigned short port) // This
 
 int ipv4_validation(char* ip) // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
 {
-	if (inet_addr(ip) == -1)
+	if (inet_addr(ip) == INADDR_NONE)
 	{
 		printf("Error! Given IP address is invalid! \n");
 		return FALSE;
@@ -212,29 +212,54 @@ int port_validation(unsigned short port) // Function checks if given port is val
 	return FALSE;
 }
 
-sockaddr_in invite() // When this function is called it asks the user for an IP address which he wants to invite and returns it.
+void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
 {
-	sockaddr_in remote_server;
-
-	char remote_ip[IP_ADDR_BUF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
-	int remote_port; // Port of Destination.
+	sockaddr_in remote_server; // Remote server's address
+	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
+	unsigned short remote_port; // Port of Destination.
 
 	// Recieve IP address of destination from user.
-	do
+	printf("Insert an IP address you want to invite: ");
+	gets_s(remote_ip, sizeof(remote_ip));
+	
+	// IP address error check:
+	while (!ipv4_validation(remote_ip))
 	{
-		printf("Insert an IP address you want to invite: ");
+		printf("\nIP is invalid! Please enter a VALID IP address: ");
 		gets_s(remote_ip, sizeof(remote_ip));
-	} while (!ipv4_validation(remote_ip));
+	}
 
 	// Recieve port of destination from user.
 	do
 	{
 		printf("Insert the port of the user you want to invite: ");
-		scanf_s("%d", &remote_port);
+		scanf_s("%hu", &remote_port);
 	} while (!port_validation(remote_port));
 
+	// Save fields into remote_server:
 	init_sockaddr_in(&remote_server, remote_ip, remote_port);
-	return remote_server;
+	
+	// Create a new socket at local->active_sockets
+	++local->num_clients; // Increment the size of the client-sockets array by one.
+	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+
+	// Memory allocation check:
+	if (local->active_sockets == NULL)
+	{
+		printf("Error! Memory could not be reallocated!\n");
+		exit(MEMORY_ALLOC_FAILED);
+	}
+
+	local->active_sockets[(local->num_clients - 1)] = socket(AF_INET, SOCK_STREAM, 0);
+	printf("New socket created!\n");
+
+	// Create connection to remote_server:
+	if (connect(local->active_sockets[(local->num_clients - 1)], (struct sockaddr*)&remote_server, sizeof(remote_server)))
+		printf("Connection to %s:%hu could not be created!\n", remote_ip, remote_port);
+		
+	else
+		printf("Connection with %s:%hu was created!\n", remote_ip, remote_port);
+
 }
 
 void bind_error_code(int bind_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
@@ -307,6 +332,52 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 	}
 }
 
+void terminate_all_connections(User* local) // This function terminates all connection of a user by closing sockets.
+{
+	closesocket(local->server_socket);
+	for (int i = 0; i < local->num_clients; i++)
+		closesocket(local->active_sockets[i]);
+}
+
+void get_time(char* buff, size_t buff_size) {
+	SYSTEMTIME time;
+	
+	GetLocalTime(&time);
+
+	sprintf_s(buff, buff_size, "%02d:%02d", time.wHour, time.wMinute);
+}
+
+void help_menu()
+{
+	printf("\nIdo Nir's P2P help menu:\n\n");
+}
+
+void user_input(User* local)
+{
+	// Print hour and minute of message
+	char time[TIME_SIZE];
+	get_time(time, sizeof(time));
+	
+	// Scan for user's message
+	printf("| %s | %s: ", time, local->username);
+	char buff[MESSAGE_BUFF_MAX];
+	gets_s( buff, MESSAGE_BUFF_MAX); // Scanning the buffer does not work.
+	if (!stricmp(buff, "Invite")) // We use stricmp to compare strings while ignoring case.
+		invite(local); // consider using "RegisterHotkey"
+
+	if (!stricmp(buff, "help")) // We use stricmp to compare strings while ignoring case.
+		help_menu();
+	
+	else
+		for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
+		{
+			//if (local->active_sockets[i] == NULL) // If connection died or their are no connections active, continue to the next socket.
+			//	continue;
+			send(local->active_sockets[i], buff, strlen(buff), 0);
+		}
+
+}
+
 //void start_guest(User* local)
 //{
 //	SOCKET new_socket;
@@ -346,52 +417,6 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 //	//		
 //}
 
-void terminate_all_connections(User* local) // This function terminates all connection of a user by closing sockets.
-{
-	closesocket(local->server_socket);
-	for (int i = 0; i < local->num_clients; i++)
-		closesocket(local->active_sockets[i]);
-}
-
-void get_time(char* buff, size_t buff_size) {
-	SYSTEMTIME time;
-	
-	GetLocalTime(&time);
-
-	sprintf_s(buff, buff_size, "%2d:%2d", time.wHour, time.wMinute);
-}
-
-void help_menu()
-{
-
-}
-
-void user_input(User* local)
-{
-	// Print hour and minute of message
-	char time[TIME_SIZE];
-	get_time(time, sizeof(time));
-	
-	// Scan for user's message
-	printf("| %s | %s: ", time, local->username);
-	char buff[MESSAGE_BUFF_MAX];
-	gets_s( buff, MESSAGE_BUFF_MAX); // Scanning the buffer does not work.
-	if (!strcmp(buff, "Invite"))
-		invite();
-
-	if (!strcmp(buff, "help") || !strcmp(buff, "Help") || !strcmp(buff, "HELP"))
-		help_menu();
-	
-	else
-		for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
-		{
-			if (local->active_sockets[i] == NULL) // If connection died or their are no connections active, continue to the next socket.
-				continue;
-			send(local->active_sockets[i], buff, strlen(buff), 0);
-		}
-
-}
-
 // Main function:
 int main(int argc, char* argv[])
 {
@@ -405,7 +430,7 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
-	printf("\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 	while (1)
 		user_input(&local);
 
