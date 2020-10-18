@@ -290,16 +290,6 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 	}
 }
 
-//void accept_new_connection()
-//{
-//
-//}
-
-//void host(User* local)
-//{
-//	// start_host(local);
-//}
-
 //void start_guest(User* local)
 //{
 //	SOCKET new_socket;
@@ -337,11 +327,6 @@ void bind_error_code(int bind_code) // The function recieves the error code from
 //	//		 add a struct called 'known_peers', which will contain their username and their 'sockaddr_in'.
 //	//		when a new connection at one of the peers is created, it will distribute to all known peers the 
 //	//		
-//}
-
-//void guest(User* local)
-//{
-//	start_guest(local);
 //}
 
 void terminate_all_connections(User* local) // This function terminates all connection of a user by closing sockets.
