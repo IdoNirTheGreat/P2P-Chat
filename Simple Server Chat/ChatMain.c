@@ -1,8 +1,6 @@
 
 // This is Ido Nir's P2P shell chat.
 
-// Main documentation:
-
 enum error_codes { // Fill in this shit later.
 	EXIT_SUCCESS,		// Finished successfully.
 	SOCK_FAILED,		// Socket failed.
@@ -18,11 +16,7 @@ enum error_codes { // Fill in this shit later.
 #include <string.h>
 #include <windows.h>
 
-#define PORT_IN 6666
-#define PORT_OUT 6667
-#define IP_LOCAL "127.0.0.1"
-#define IP_REMOTE "127.0.0.1"
-#define MAX_USERNAME_LENGTH (20)
+#define USERNAME_MAX_LENGTH 20
 #define IP_ADDR_BUF_SIZE 16
 #define MESSAGE_BUFF_MAX 512 
 #define TIME_SIZE 8
@@ -35,11 +29,11 @@ enum error_codes { // Fill in this shit later.
 typedef struct User
 {
 	// User will input a username that will be shows in-chat.
-	char username[MAX_USERNAME_LENGTH];
+	char username[USERNAME_MAX_LENGTH];
 
 	//// The local user's server's address, which includes the address'
 	//// family (AF_INET in this case), IP address, and port number.
-	//struct sockaddr_in server;
+	struct sockaddr_in server_addr;
 
 	SOCKET server_socket; // Is used only for creating connections. Is used only to create one connection at a time.
 	SOCKET* active_sockets; // Array of sockets used for sending and recieving data to multiple peers.
@@ -58,6 +52,7 @@ void init_user(User* self, char* ip, int port_in, int port_out, char* key);
 void bind_error_code(int bind_code);
 void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, int port);
 void get_time(char* buf, size_t buf_size);
+char* get_username();
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -75,26 +70,16 @@ void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADA
 void init_user(User* local)
 {
 	// Initialize the username to be the user's input.
-	printf("Please enter a username that is up to %d characters: ", MAX_USERNAME_LENGTH);
-	gets_s(local->username, MAX_USERNAME_LENGTH);
+	char* username = get_username();
+	strcpy(local->username, username);
+	free(username);
 
-	struct sockaddr_in server_addr;
+	// Create a 'sockaddr_in' for the servers address:
 	char* listen_ip = "0.0.0.0";
-	unsigned short accept_port;
-	
-	printf("Please enter a port number for the server: ");
-	scanf_s("%hu", &accept_port);
-
-	// Accept port validation:
-	while (port_validation(accept_port) == FALSE)
-	{
-		printf("Error! The port you have entered is invalid.\n");
-		printf("Please enter a port number for the server: ");
-		scanf_s("%hu", &accept_port);
-	}
+	unsigned short accept_port = 0; // To choose a randomly available port.
 	
 	// Initialize the local server's address.
-	init_sockaddr_in(&server_addr, listen_ip, accept_port);
+	init_sockaddr_in(&local->server_addr, listen_ip, accept_port);
 
 	// (17.10.20 16:41) - We think that you don't need to save the user's server address 
 	// (because it can just listen to incoming connections on all of the interfaces) 
@@ -137,7 +122,7 @@ void init_user(User* local)
 	}
 
 	// Bind sockets
-	int bind_server = bind(local->server_socket, (struct sockaddr*) &server_addr, sizeof(server_addr));
+	int bind_server = bind(local->server_socket, (struct sockaddr*) &local->server_addr, sizeof(local->server_addr));
 
 	// Bind error check:
 	if (bind_server != 0)
@@ -147,6 +132,38 @@ void init_user(User* local)
 		closesocket(local->server_socket);
 		exit(BIND_FAILED);
 	}
+	
+	int size = sizeof(local->server_addr);
+	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
+	printf("Local Server is open! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
+}
+
+int is_alnum_string(char* string) {
+	while (*string) {
+		if (!(('a' <= *string && *string <= 'z') || ('A' <= *string && *string <= 'Z') || ('0' <= *string && *string <= '9')))
+			return FALSE;
+		++string;
+	}
+
+	return TRUE;
+}
+
+char* get_username()
+{
+	char *username = (char*)calloc(USERNAME_MAX_LENGTH, sizeof(char));
+	if (!username)
+		exit(MEMORY_ALLOC_FAILED);
+
+	printf("Please enter a username that is 3-%d characters long and alphanumeric: ", USERNAME_MAX_LENGTH);
+	gets_s(username, USERNAME_MAX_LENGTH);
+
+	while (strlen(username) < 3 || !is_alnum_string(username))
+	{
+		printf("Please enter a username again: ");
+		gets_s(username, USERNAME_MAX_LENGTH);
+	}
+
+	return username;
 }
 
 void init_sockaddr_in(sockaddr_in* sa_in, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
@@ -336,15 +353,15 @@ void terminate_all_connections(User* local) // This function terminates all conn
 		closesocket(local->active_sockets[i]);
 }
 
-void get_time(char* buf, size_t buf_size) {
+void get_time(char* buff, size_t buff_size) {
 	SYSTEMTIME time;
 	
-	GetSystemTime(&time);
+	GetLocalTime(&time);
 
-	sprintf_s(buf, buf_size, "%2d:%2d", time.wHour, time.wMinute);
+	sprintf_s(buff, buff_size, "%2d:%2d", time.wHour, time.wMinute);
 }
 
-void show_help()
+void help_menu()
 {
 
 }
@@ -356,15 +373,14 @@ void user_input(User* local)
 	get_time(time, sizeof(time));
 	
 	// Scan for user's message
-	printf("| %s |%s: ", time, local->username);
-	char buff[MESSAGE_BUFF_MAX] = "";
-	scanf_s("%s", buff); // Scanning the buffer does not work.
-	
-	if (strcmp(buff, "Invite"))
+	printf("| %s | %s: ", time, local->username);
+	char buff[MESSAGE_BUFF_MAX];
+	gets_s( buff, MESSAGE_BUFF_MAX); // Scanning the buffer does not work.
+	if (!strcmp(buff, "Invite"))
 		invite();
 
-	if (strcmp(buff, "help") || strcmp(buff, "Help") || strcmp(buff, "HELP"))
-		show_help();
+	if (!strcmp(buff, "help") || !strcmp(buff, "Help") || !strcmp(buff, "HELP"))
+		help_menu();
 	
 	else
 		for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
@@ -389,7 +405,7 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
-	printf("\nChat started!\n");
+	printf("\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 	while (1)
 		user_input(&local);
 
