@@ -2,12 +2,14 @@
 // This is Ido Nir's P2P shell chat.
 
 enum error_codes { // Fill in this shit later.
-	EXIT_SUCCESS,		// Finished successfully.
-	SOCK_FAILED,		// Socket failed.
-	BIND_FAILED,		// Bind failed.
-	CONNECTION_FAILED,	// Connection to destination's server has failed.
-	WSA_FAILED, 		// WSA module initialize failed.
-	MEMORY_ALLOC_FAILED // Memory allocation has failed. 
+	EXIT_SUCCESS,			// Finished successfully.
+	SOCK_FAILED,			// Socket failed.
+	BIND_FAILED,			// Bind failed.
+	CONNECTION_FAILED,		// Connection to destination's server has failed.
+	WSA_FAILED, 			// WSA module initialize failed.
+	MEMORY_ALLOC_FAILED,	// Memory allocation has failed. 
+	HOST_NAME_ERROR,		// Host name could not be retrieved.
+	HOST_INFO_ERROR,		// Host information could not be retrieved.
 };
 
 #include <stdio.h>
@@ -53,6 +55,8 @@ void bind_error_code(int bind_code);
 void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, unsigned short port);
 void get_time(char* buf, size_t buf_size);
 char* get_username();
+char* get_private_ip();
+char* get_public_ip();
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -75,7 +79,7 @@ void init_user(User* local)
 	free(username);
 
 	// Create a 'sockaddr_in' for the servers address:
-	char* listen_ip = "0.0.0.0";
+	char* listen_ip = get_private_ip();
 	unsigned short accept_port = 0; // To choose a randomly available port.
 	
 	// Initialize the local server's address.
@@ -135,7 +139,8 @@ void init_user(User* local)
 	
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
-	printf("Local Server is open! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
+	printf("\nLocal Server is open! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
+	printf("TMI: To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
 int is_alnum_string(char* string) {
@@ -362,10 +367,14 @@ void user_input(User* local)
 	printf("| %s | %s: ", time, local->username);
 	char buff[MESSAGE_BUFF_MAX];
 	gets_s( buff, MESSAGE_BUFF_MAX); // Scanning the buffer does not work.
-	if (!stricmp(buff, "Invite")) // We use stricmp to compare strings while ignoring case.
+	
+	if (!stricmp(buff, "/exit")) // To exit the chat.
+		exit(EXIT_SUCCESS);
+	
+	if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
 		invite(local); // consider using "RegisterHotkey"
 
-	if (!stricmp(buff, "help")) // We use stricmp to compare strings while ignoring case.
+	if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 		help_menu();
 	
 	else
@@ -376,6 +385,44 @@ void user_input(User* local)
 			send(local->active_sockets[i], buff, strlen(buff), 0);
 		}
 
+}
+
+char* get_private_ip()
+{
+	// 'Local' is the host
+	char host_buffer[256];
+	struct hostent* local_host_info;
+
+	// Retrieve local host's name
+	int local_host_name = gethostname(host_buffer, sizeof(host_buffer));
+
+	// Host name error check:
+	if (local_host_name == -1)
+	{
+		printf("Local host's name could not be retrieved.\n");
+		exit(HOST_NAME_ERROR);
+	}
+
+	// Retrieve local host's info
+	local_host_info = gethostbyname(host_buffer);
+
+	// Local host info error check:
+	if (local_host_info == NULL)
+	{
+		printf("Local host's information could not be retrieved. \n");
+		exit(HOST_INFO_ERROR);
+	}
+
+	char *ip_str = inet_ntoa(*((struct in_addr*)local_host_info->h_addr_list[0]));
+
+	return ip_str;
+}
+
+char* get_public_ip() // TODO: Not completed!
+{
+	char* domain = "https://api.ipify.org"; // We use the ipify api to get the public ip of the machine.
+
+	return "0.0.0.0";
 }
 
 //void start_guest(User* local)
