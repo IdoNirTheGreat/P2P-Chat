@@ -10,6 +10,8 @@ enum error_codes { // Fill in this shit later.
 	MEMORY_ALLOC_FAILED,	// Memory allocation has failed. 
 	HOST_NAME_ERROR,		// Host name could not be retrieved.
 	HOST_INFO_ERROR,		// Host information could not be retrieved.
+	IPIFY_ERROR,			// Connection to ipify API has failed.
+	LOCAL_SERVER_FAILED,	// Local server has failed.
 };
 
 #include <stdio.h>
@@ -57,6 +59,7 @@ void get_time(char* buf, size_t buf_size);
 char* get_username();
 char* get_private_ip();
 char* get_public_ip();
+int connection_choice(char* ip, unsigned short port);
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -84,18 +87,13 @@ void init_user(User* local)
 	
 	// Initialize the local server's address.
 	init_sockaddr_in(&local->server_addr, listen_ip, accept_port);
-
-	// (17.10.20 16:41) - We think that you don't need to save the user's server address 
-	// (because it can just listen to incoming connections on all of the interfaces) 
-	// so we're trying to work without it.
-	//// Initialize the user's end server 'sockaddr_in' instance 'self'.
-	//init_sockaddr_in(&(local->server), , accept_port);	// Here we create the local server's address:
-	//															// We input the init_sockaddr_in function a
-	//															// pointer to the address we want to change 
-	//															// (to change it by reference), the IPV4 address
-	//															// that the local user wants other users to connect
-	//															// to, and the port he wants to open for the accept
-	//															// to happen.
+															// Here we create the local server's address:
+															// we input the init_sockaddr_in function a
+															// pointer to the address we want to change 
+															// (to change it by reference), the ipv4 address
+															// that the local user wants other users to connect
+															// to, and the port he wants to open for the accept
+															// to happen.
 
 	// Initialize Encryption key.
 	local->key = KEY; // We copy the key given in the parameters field by reference.
@@ -140,7 +138,7 @@ void init_user(User* local)
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
 	printf("\nLocal Server is open! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
-	printf("TMI: To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
+	printf("To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
 int is_alnum_string(char* string) {
@@ -217,7 +215,7 @@ int port_validation(unsigned short port) // Function checks if given port is val
 	return FALSE;
 }
 
-void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
+void to_invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
 {
 	sockaddr_in remote_server; // Remote server's address
 	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
@@ -366,13 +364,16 @@ void user_input(User* local)
 	// Scan for user's message
 	printf("| %s | %s: ", time, local->username);
 	char buff[MESSAGE_BUFF_MAX];
-	gets_s( buff, MESSAGE_BUFF_MAX); // Scanning the buffer does not work.
+	gets_s( buff, MESSAGE_BUFF_MAX);
 	
 	if (!stricmp(buff, "/exit")) // To exit the chat.
+	{
+		WSACleanup(); // Close the Winsock module.
 		exit(EXIT_SUCCESS);
+	}
 	
 	if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
-		invite(local); // consider using "RegisterHotkey"
+		to_invite(local); // consider using "RegisterHotkey"
 
 	if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 		help_menu();
@@ -420,49 +421,86 @@ char* get_private_ip()
 
 char* get_public_ip() // TODO: Not completed!
 {
-	char* domain = "https://api.ipify.org"; // We use the ipify api to get the public ip of the machine.
+
 
 	return "0.0.0.0";
 }
 
-//void start_guest(User* local)
-//{
-//	SOCKET new_socket;
-//	struct sockaddr_in remote;
-//	int size_of_sockaddr = sizeof(struct sockaddr_in);
-//	if (listen(local->server_socket, 0) == SOCKET_ERROR)
-//	{
-//		printf("Listen function failed with error: %d\n", WSAGetLastError());
-//		return NULL; // should we return null?
-//	}
-//
-//	// 'new_socket' is the socket that we use to connect to the user that we have just accepted.
-//	new_socket = accept(local->server_socket, (struct sockaddr*)&remote, &size_of_sockaddr);
-//
-//	// TODO:  let the user choose if to accept or deny the connection.
-//	// choose_acceptance();
-//
-//	// TODO: error check if the acceptance did not work.
-//
-//	// Insert the new socket to the array of sockets inside the local user's struct, an increment the size of the array by 1.
-//	(local->num_clients)++; // Increment the size of the client-sockets array by one.
-//	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
-//
-//	// Memory allocation check:
-//	if (local->active_sockets == NULL)
-//	{
-//		printf("Error! Memory could not be reallocated!\n");
-//		exit(MEMORY_ALLOC_FAILED);
-//	}
-//
-//	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
-//	local->active_sockets[local->num_clients - 1] = new_socket;
-//
-//	// TODO: make an introduction AKA multiple_handshake.
-//	//		 add a struct called 'known_peers', which will contain their username and their 'sockaddr_in'.
-//	//		when a new connection at one of the peers is created, it will distribute to all known peers the 
-//	//		
-//}
+void introduction() // TODO: create the introduction fuction.
+{
+// TODO: make an introduction AKA multiple_handshake.
+	//		 add a struct called 'known_peers', which will contain their username and their 'sockaddr_in'.
+	//		when a new connection at one of the peers is created, it will distribute to all known peers the 
+	//		
+}
+
+int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
+{
+	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n):\n", ip, port);
+	char* choice[2];
+	gets_s(choice, 2); 
+
+	if (!stricmp(choice, "y")) // If user accepts connection:
+		return TRUE;
+
+
+	if (!stricmp(choice, "n")) // If user denies connection:
+	{
+		return FALSE; 
+	}
+
+	return connection_choice(ip, port); // Make it recursive just for the hell of it? :)
+}
+
+void server_thread(User* local)
+{
+	if (listen(local->server_socket, 0) == SOCKET_ERROR)
+	{
+		printf("Listen function failed with error: %d\n", WSAGetLastError());
+		exit(LOCAL_SERVER_FAILED);
+	}
+
+	// We save the socket that we use to connect to the user that we have just accepted.
+	struct sockaddr_in remote_client; // Address of the remote client.
+	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
+	SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
+
+	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
+	int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
+		// Error check for the use of getpeername function:
+		if (error == SOCKET_ERROR)
+		{
+			printf("Remote client's address could not be retrieved.\n");
+			exit(LOCAL_SERVER_FAILED);
+		}
+
+	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
+	// We must accept the connection at the first place, and then if the user doesn't want
+	// to accept the connection we will close it.
+	
+	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
+	{
+		printf("Connection denied!\n");
+		return; // Exit the function, but keep thread running to keep the server listening.
+	}
+
+	// Insert the new socket to the array of sockets inside the local user's struct, an increment the size of the array by 1.
+	++(local->num_clients); // Increment the size of the client-sockets array by one.
+	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+
+	// Memory allocation check:
+	if (local->active_sockets == NULL)
+	{
+		printf("Error! Memory could not be reallocated!\n");
+		exit(MEMORY_ALLOC_FAILED);
+	}
+
+	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
+	local->active_sockets[local->num_clients - 1] = temp_socket;
+
+	// Advance to the introduction:
+	introduction();
+}
 
 // Main function:
 int main(int argc, char* argv[])
