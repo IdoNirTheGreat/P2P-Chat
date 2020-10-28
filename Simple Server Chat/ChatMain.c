@@ -426,11 +426,10 @@ char* get_public_ip() // TODO: Not completed!
 	return "0.0.0.0";
 }
 
-void introduction() // TODO: create the introduction fuction.
-{
-// TODO: make an introduction AKA multiple_handshake.
-	//		 add a struct called 'known_peers', which will contain their username and their 'sockaddr_in'.
-	//		when a new connection at one of the peers is created, it will distribute to all known peers the 
+void introduction(User* local) // TODO: create the introduction fuction.
+{	// This function makes an introduction, AKA multiple_handshake.
+	//		add a struct called 'known_peers', which will contain their username and their 'sockaddr_in'.
+	//		when a new connection at one of the peers is created, it will distribute to all known peers.
 	//		
 }
 
@@ -452,6 +451,26 @@ int connection_choice(char* ip, unsigned short port) // Function recieves the ip
 	return connection_choice(ip, port); // Make it recursive just for the hell of it? :)
 }
 
+void insert_socket(User* local, SOCKET s)
+{	// This function recieves the 'local' user and a socket 's' that was returned by the 'accept' function in the local server's thread.
+	// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
+
+	++(local->num_clients); // Increment the size of the client-sockets array by one.
+	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+
+	// Memory allocation check:
+	if (local->active_sockets == NULL)
+	{
+		printf("Error! Memory could not be reallocated!\n");
+		exit(MEMORY_ALLOC_FAILED);
+	}
+
+	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
+	local->active_sockets[local->num_clients - 1] = s;
+
+	// Function finishes successfully.
+}
+
 void server_thread(User* local)
 {
 	if (listen(local->server_socket, 0) == SOCKET_ERROR)
@@ -460,9 +479,10 @@ void server_thread(User* local)
 		exit(LOCAL_SERVER_FAILED);
 	}
 
-	// We save the socket that we use to connect to the user that we have just accepted.
 	struct sockaddr_in remote_client; // Address of the remote client.
 	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
+
+	// We must save the socket that we use to connect to the user that we have just accepted.
 	SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
 
 	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
@@ -475,31 +495,24 @@ void server_thread(User* local)
 		}
 
 	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
-	// We must accept the connection at the first place, and then if the user doesn't want
-	// to accept the connection we will close it.
+	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 	
+	// If user DOES NOT want to connect to remote client:
 	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
 	{
 		printf("Connection denied!\n");
-		return; // Exit the function, but keep thread running to keep the server listening.
+		closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
 	}
 
-	// Insert the new socket to the array of sockets inside the local user's struct, an increment the size of the array by 1.
-	++(local->num_clients); // Increment the size of the client-sockets array by one.
-	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
-
-	// Memory allocation check:
-	if (local->active_sockets == NULL)
+	// If user DOES want to connect to remote client:
+	else
 	{
-		printf("Error! Memory could not be reallocated!\n");
-		exit(MEMORY_ALLOC_FAILED);
+		insert_socket(local, temp_socket);
+		printf("Connection with %s has been created successfully!\n", remote_ip);
+		
+		// Advance to the introduction:
+		introduction(local);
 	}
-
-	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
-	local->active_sockets[local->num_clients - 1] = temp_socket;
-
-	// Advance to the introduction:
-	introduction();
 }
 
 // Main function:
