@@ -5,7 +5,7 @@ enum error_codes { // Fill in this shit later.
 	EXIT_SUCCESS,			// Finished successfully.
 	SOCK_FAILED,			// Socket failed.
 	BIND_FAILED,			// Bind failed.
-	CONNECTION_FAILED,		// Connection to destination's server has failed.
+	CONNECTION_FAILED,		// Connection to remote user has failed.
 	WSA_FAILED, 			// WSA module initialize failed.
 	MEMORY_ALLOC_FAILED,	// Memory allocation has failed. 
 	HOST_NAME_ERROR,		// Host name could not be retrieved.
@@ -119,7 +119,7 @@ void init_user(User* local)
 															// to accept connections from other users.
 
 	//	Socket error check:
-	if (local->server_socket == -1)
+	if (local->server_socket == INVALID_SOCKET)
 	{
 		printf("The server socket could not be created!\n");
 		exit(SOCK_FAILED);
@@ -342,7 +342,7 @@ void help_menu()
 	printf("To send a message in the chat room, just type it!\n");
 	printf("To invite someone, type '/invite'. Then, insert their IP address and port.\n");
 	printf("Don't forget to insert the user's public IP if they're not in the same network as you.\n");
-	printf("FYI, The chat currently supports only IPV4 addresses. If you have an IPV6 connection, tough luck motherfucker, don't patronize just because you have IPV6.\n");
+	printf("FYI, The chat currently supports only IPV4 addresses. If you have an IPV6 connection, don't patronize just because you have IPV6.\n");
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
@@ -544,6 +544,14 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 	// into 'local->active_addresses.
 
 	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0); // A temporary socket to create the initial connection with the remote user.
+	//	Socket error check:
+	if (temp == INVALID_SOCKET)
+	{
+		printf("The server socket could not be created!\n");
+		exit(SOCK_FAILED);
+	}
+
+	// Create the connection:
 	if (!connect(temp, (struct sockaddr*)&remote_user, sizeof(remote_user)))
 	{
 		printf("Connection with %s:%hu has failed.\n", inet_ntoa(remote_user.sin_addr), remote_user.sin_port);
