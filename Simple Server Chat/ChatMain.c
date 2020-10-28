@@ -61,6 +61,7 @@ char* get_username();
 char* get_private_ip();
 char* get_public_ip();
 int connection_choice(char* ip, unsigned short port);
+void connect_to_remote_user(User* local, sockaddr_in remote_client);
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -218,7 +219,7 @@ int port_validation(unsigned short port) // Function checks if given port is val
 
 void to_invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
 {
-	sockaddr_in remote_server; // Remote server's address
+	sockaddr_in remote_user; // Remote server's address
 	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
 	unsigned short remote_port; // Port of Destination.
 
@@ -240,29 +241,13 @@ void to_invite(User* local) // When this function is called it asks the user for
 		scanf_s("%hu", &remote_port);
 	} while (!port_validation(remote_port));
 
-	// Save fields into remote_server:
-	init_sockaddr_in(&remote_server, remote_ip, remote_port);
-	
-	// Create a new socket at local->active_sockets
-	++local->num_clients; // Increment the size of the client-sockets array by one.
-	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+	// Save values into 'remote_user':
+	init_sockaddr_in(&remote_user, remote_ip, remote_port);
 
-	// Memory allocation check:
-	if (local->active_sockets == NULL)
-	{
-		printf("Error! Memory could not be reallocated!\n");
-		exit(MEMORY_ALLOC_FAILED);
-	}
+	// Create connection to remote user:
+	connect_to_remote_user(local, remote_user);
 
-	local->active_sockets[(local->num_clients - 1)] = socket(AF_INET, SOCK_STREAM, 0);
-	printf("New socket created!\n");
-
-	// Create connection to remote_server:
-	if (connect(local->active_sockets[(local->num_clients - 1)], (struct sockaddr*)&remote_server, sizeof(remote_server)))
-		printf("Connection to %s:%hu could not be created!\n", remote_ip, remote_port);
-		
-	else
-		printf("Connection with %s:%hu was created!\n", remote_ip, remote_port);
+	printf("Connection with %s:%hu was created!\n", remote_ip, remote_port);
 
 }
 
@@ -374,7 +359,7 @@ void user_input(User* local)
 	}
 	
 	if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
-		to_invite(local); // consider using "RegisterHotkey"
+		to_invite(local);
 
 	if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 		help_menu();
@@ -439,20 +424,63 @@ void introduction(User* local) // TODO: create the introduction fuction.
 	// Add to buffer the addresses that the local client is connected to.
 	for (int i = 0; i < (local->num_clients-1) ; i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
 	{
-		// Add the IP address and port with a colon between them, and barriers between each address.
+		// Add the IP address and port with a colon between them, and padding between each address.
 		snprintf(buff, "||%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port); 
 	}
 	snprintf(buff, "%c", '\0'); // Finish the buffer with an EOF.
 
 	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
+	// encrypt(buff); TODO when the encryption function will be completed.
 	send(local->active_sockets[local->num_clients - 1], buff, (int)strlen(buff), 0); // Sending the buffer.
 
 	// Step 2: The remote user connects to all addresses it hasn't connected to. Nothing actually happens in the local side.
 	// Sweet nothing :)
 
 	// Step 3: The local user recieves a list of addresses that the remote client is connected to.
+	*buff = ""; // Re-write 'buff'.
+	recv(local->active_sockets[local->num_clients - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
+	// decrypt(buff); TODO when the decryption function will be completed.
+	
+	printf("The list of addresses the remote client has sent is: %s\n", buff); // For debugging.
+
+	sockaddr_in* addresses = NULL; // A pointer to the list of addresses that the remote client has sent.
+	int amount = 0; // The amount of addresses the remote client has sent.
+
+	// The amount of addresses is determined by the amount of "||" paddings.
+	for (int i = 0; buff[i] != '\0'; i++)
+	{
+		if (buff[i] == '|' && buff[i + 1] == '|') // If reached padding reallocate memory to handle one more address.
+		{
+			addresses = (sockaddr_in*)realloc(addresses, (++amount) * sizeof(sockaddr_in));
+			// Memory allocation check:
+			if (addresses == NULL)
+			{
+				printf("Error! Memory could not be reallocated!\n");
+				exit(MEMORY_ALLOC_FAILED);
+			}
+
+		}
+					
+		char ip[IP_ADDR_BUFF_SIZE] = "";
+		char port[5] = ""; // Port can be up to 5 digits.
+		int j = 0;
+
+		// Copy the values from the buffer into the string, while advancing i and j, until reached a colon.
+		while (buff[i] != ':')
+			ip[j++] = buff[i++]; 
+
+		// Copy the values from the buffer into the string, while advancing i and j, until reached a padding.
+		j = 0;
+		while (buff[i + 1] != '|')
+			port[j++] = buff[i++];
+
+		init_sockaddr_in((addresses + amount - 1), ip, (unsigned short)atoi(port)); // Initialize the address with the given values.
+	}
 
 	// Step 4: The local user makes connections to all addresses recieved to the remote client.
+	for (int i = 0; i < amount; i++)
+		connect_to_remote_user(local, addresses[i]);
+
 }
 
 int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
@@ -473,7 +501,7 @@ int connection_choice(char* ip, unsigned short port) // Function recieves the ip
 	return connection_choice(ip, port); // Make it recursive just for the hell of it? :)
 }
 
-void insert_remote_client(User* local, SOCKET s, sockaddr_in remote_client)
+void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 {	// This function recieves the 'local' user and a socket 's' that was returned by the 'accept' function in the local server's thread.
 	// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
 	// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
@@ -490,7 +518,7 @@ void insert_remote_client(User* local, SOCKET s, sockaddr_in remote_client)
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
 	local->active_sockets[local->num_clients - 1] = s;
 
-	local->active_addresses = (SOCKET*)realloc(local->active_addresses, (local->num_clients) * sizeof(sockaddr_in)); // Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
+	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->num_clients) * sizeof(sockaddr_in)); // Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
 	// Memory allocation check:
 	if (local->active_sockets == NULL)
 	{
@@ -499,9 +527,27 @@ void insert_remote_client(User* local, SOCKET s, sockaddr_in remote_client)
 	}
 
 	// We add the address of the remote client we have just connected to, to the list of active addresses in 'local'.
-	local->active_addresses[local->num_clients - 1] = remote_client;
+	local->active_addresses[local->num_clients - 1] = remote_user;
 
 	// Function finishes successfully.
+}
+
+void connect_to_remote_user(User* local, sockaddr_in remote_user)
+{ 
+	// The function recieves the local user and an address of a remote user. The function creates a connection
+	// to the remote user and inserts the new socket into 'local->active_sockets', the address of the remote user
+	// into 'local->active_addresses.
+
+	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0); // A temporary socket to create the initial connection with the remote user.
+	if (!connect(temp, (struct sockaddr*)&remote_user, sizeof(remote_user)))
+	{
+		printf("Connection with %s:%hu has failed.\n", inet_ntoa(remote_user.sin_addr), remote_user.sin_port);
+		exit(CONNECTION_FAILED);
+	}
+
+	// Insert the new socket and address of the connection to the remote user into local.
+	insert_remote_user(local, temp, remote_user); 
+
 }
 
 void server_thread(User* local)
@@ -541,7 +587,7 @@ void server_thread(User* local)
 	// If user DOES want to connect to remote client:
 	else
 	{
-		insert_remote_client(local, temp_socket, remote_client);
+		insert_remote_user(local, temp_socket, remote_client);
 		printf("Connection with %s has been created successfully!\n", remote_ip);
 		
 		// Advance to the introduction:
