@@ -339,6 +339,11 @@ void get_time(char* buff, size_t buff_size) {
 void help_menu()
 {
 	printf("\nIdo Nir's P2P help menu:\n\n");
+	printf("To send a message in the chat room, just type it!\n");
+	printf("To invite someone, type '/invite'. Then, insert their IP address and port.\n");
+	printf("Don't forget to insert the user's public IP if they're not in the same network as you.\n");
+	printf("FYI, The chat currently supports only IPV4 addresses. If you have an IPV6 connection, tough luck motherfucker, don't patronize just because you have IPV6.\n");
+	printf("To exit the chat, type '/exit'.\n\n");
 }
 
 void user_input(User* local)
@@ -609,6 +614,7 @@ int main(int argc, char* argv[])
 	init_user(&local);
 
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+	printf("For the help menu, type '/help'.\n\n");
 	while (1)
 		user_input(&local);
 
