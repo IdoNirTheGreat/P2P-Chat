@@ -20,6 +20,7 @@ enum error_codes { // Fill in this shit later.
 #include <ws2tcpip.h>
 #include <string.h>
 #include <windows.h>
+#include <process.h>
 
 #define USERNAME_MAX_LENGTH 20
 #define IP_ADDR_BUFF_SIZE 16
@@ -46,9 +47,22 @@ typedef struct User
 
 	struct sockaddr_in* active_addresses; // A pointer to the list of addresses that the local user is connected to.
 
+	int server_flag;	// A flag used to tell if server is now handling an incoming connection or not.
+						// If a remote user is attempting connection to local server, the local client thread
+						// will stop until it's done, and then resume the local client thread.
+						// If server_flag equals FALSE, it means it's inactive.
+						// If server flag equals TRUE, it's active.
+
 	// Key for future encryption feature.
 	char* key;
 }User;
+
+// Optional:
+//typedef struct thread_data {
+//	int val1;
+//	int val2;
+//} TDATA, *PTDATA;
+
 
 typedef struct sockaddr_in sockaddr_in;
 
@@ -99,6 +113,9 @@ void init_user(User* local)
 
 	// Initialize Encryption key.
 	local->key = KEY; // We copy the key given in the parameters field by reference.
+
+	// Initialize Server flag to 0, meaning currently inactive.
+	local->server_flag = FALSE;
 
 	// Initialize client and server sockets.
 	local->active_sockets = NULL;							// Here we initialize the sockets array to null. 
@@ -346,7 +363,7 @@ void help_menu()
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
-void user_input(User* local)
+void local_client(User* local)
 {
 	// Print hour and minute of message
 	char time[TIME_SIZE];
@@ -563,23 +580,28 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 
 }
 
-void server_thread(User* local)
-{	// This function will run continuously, listening to incoming connections. If a remote client is trying to make a connection, the function will kick-off.
+void local_server(User* local)
+{	// This function will run on the server thread continuously, listening to incoming connections. If a remote client is trying to make a connection, the server thread will stop other threads and resume them when actions are done.
 
+	// If a socket error of local server occurred:
 	if (listen(local->server_socket, 0) == SOCKET_ERROR)
 	{
 		printf("Listen function failed with error: %d\n", WSAGetLastError());
 		exit(LOCAL_SERVER_FAILED);
 	}
 
-	struct sockaddr_in remote_client; // Address of the remote client.
-	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
+	// If a remote user connected to local server:
+	else
+	{
+		local->server_flag = TRUE; // Set the server flag to active.
+		struct sockaddr_in remote_client; // Address of the remote client.
+		int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
 
-	// We must save the socket that we use to connect to the user that we have just accepted.
-	SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
+		// We must save the socket that we use to connect to the user that we have just accepted.
+		SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
 
-	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
-	int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
+		// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
+		int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
 		// Error check for the use of getpeername function:
 		if (error == SOCKET_ERROR)
 		{
@@ -587,24 +609,25 @@ void server_thread(User* local)
 			exit(LOCAL_SERVER_FAILED);
 		}
 
-	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
-	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
-	
-	// If user DOES NOT want to connect to remote client:
-	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
-	{
-		printf("Connection denied!\n");
-		closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
-	}
+		char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
+		// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 
-	// If user DOES want to connect to remote client:
-	else
-	{
-		insert_remote_user(local, temp_socket, remote_client);
-		printf("Connection with %s has been created successfully!\n", remote_ip);
-		
-		// Advance to the introduction:
-		introduction(local);
+		// If user DOES NOT want to connect to remote client:
+		if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
+		{
+			printf("Connection denied!\n");
+			closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
+		}
+
+		// If user DOES want to connect to remote client:
+		else
+		{
+			insert_remote_user(local, temp_socket, remote_client);
+			printf("Connection with %s has been created successfully!\n", remote_ip);
+
+			// Advance to the introduction:
+			introduction(local);
+		}
 	}
 }
 
@@ -621,10 +644,32 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
+	//// Create server and client threads:
+	//DWORD server_thread_id = NULL;
+	//HANDLE server_thread = CreateThread(
+	//	NULL,                   // default security attributes
+	//	0,                      // use default stack size  
+	//	local_server,			// thread function name
+	//	&local_user,					// argument to thread function 
+	//	0,                      // use default creation flags 
+	//	&server_thread_id		// returns the thread identifier 
+	//);
+	//
+	//DWORD client_thread_id = NULL;
+	//HANDLE client_thread = CreateThread(
+	//	NULL,                   // default security attributes
+	//	0,                      // use default stack size  
+	//	local_client,			// thread function name
+	//	&local_user,					// argument to thread function 
+	//	0,                      // use default creation flags 
+	//	&client_thread_id		// returns the thread identifier 
+	//);
+
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 	printf("For the help menu, type '/help'.\n\n");
-	while (1)
-		user_input(&local);
+	while (TRUE)
+		local_client(&local);
+		
 
 	return 0;
 }
