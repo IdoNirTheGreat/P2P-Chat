@@ -191,11 +191,11 @@ char* get_username()
 void init_sockaddr_in(sockaddr_in* sa_in, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
 {
 
-	sa_in->sin_family = AF_INET;	// We want our server to connect over an IPV4 Internet connection. 
+	sa_in->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
 										// The type of our address, AKA the address' family is AF_INET, 
 										// which represents the IPV4 Internet connection. 
 
-	sa_in->sin_port = htons(port); // We set the port which we want the server to send data from. 
+	sa_in->sin_port = htons(port);		// We set the port which we want the server to send data from. 
 										// The function 'htons()': casts a short from Host to Network Byte Order-
 										// Host-TO-Network-Short .The usual way that we read a number in binary,
 										// which is that the first (most left) digit represents the biggest/most
@@ -427,11 +427,35 @@ char* get_private_ip()
 	return ip_str;
 }
 
-char* get_public_ip() // TODO: Not completed!
+char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must be written so a machine inside
+						//	the network could connect to a machine outside of the network.
 {
+	// We'll use the Ipify API for this:
+	sockaddr_in ipify;
+	init_sockaddr_in(&ipify, "108.171.202.203", 443);
 
+	// Create the socket for the request:
+	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0);
 
-	return "0.0.0.0";
+	// Create connection:
+	if (!connect(temp, (struct sockaddr*)&ipify, sizeof(ipify)))
+	{
+		printf("Connection with 'Ipify.org' has failed.\n");
+		return "0.0.0.0";
+	}
+
+	//// Send request:
+	//char* request = "GET / HTTP/1.0\r\nHost: api.ipify.org \r\n User-Agent: " AGENT_NAME "\r\n\r\n";
+	//send(temp, "GET / HTTP / 1.0\r\n", (int)strlen("GET / HTTP/1.0\r\n"), 0); // The request is an empty string.
+
+	// Recieve IP from Ipify server:
+	char public_ip[IP_ADDR_BUFF_SIZE] = "";
+	recv(temp, public_ip, IP_ADDR_BUFF_SIZE, 0);
+
+	// Close the socket to leave no open connections:
+	close(temp);
+
+	return public_ip;
 }
 
 void introduction(User* local) // TODO: create the introduction fuction.
