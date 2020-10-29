@@ -16,7 +16,7 @@ enum error_codes { // Fill in this shit later.
 };
 
 #include <stdio.h>
-#include <winsock2.h>
+#include <Winsock2.h>
 #include <ws2tcpip.h>
 #include <string.h>
 #include <windows.h>
@@ -76,6 +76,7 @@ char* get_private_ip();
 char* get_public_ip();
 int connection_choice(char* ip, unsigned short port);
 void connect_to_remote_user(User* local, sockaddr_in remote_client);
+void send_message(User* local, char* buff);
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -376,6 +377,7 @@ void local_client(User* local)
 	
 	if (!stricmp(buff, "/exit")) // To exit the chat.
 	{
+		terminate_all_connections(local); // Close all connections.
 		WSACleanup(); // Close the Winsock module.
 		exit(EXIT_SUCCESS);
 	}
@@ -385,15 +387,44 @@ void local_client(User* local)
 
 	if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 		help_menu();
-	
-	else
-		for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
-		{
-			//if (local->active_sockets[i] == NULL) // If connection died or their are no connections active, continue to the next socket.
-			//	continue;
-			send(local->active_sockets[i], buff, strlen(buff), 0);
-		}
 
+	else
+		send_message(local, buff); // Function recieves local user and a buffer, and distributes the buffer to each remote client.
+
+}
+
+void send_message(User* local, char* buff)
+{	// Function recieves local user and a buffer, and distributes the buffer to each remote client.
+
+	char fbuff[MESSAGE_BUFF_MAX] = ""; // Final buffer that will be distributed.
+
+	char time[TIME_SIZE];
+	get_time(time, sizeof(time));
+
+	// Final-buffer is made out of a time-stamp, username and original buffer:
+	snprintf(fbuff, "| %s | %s: %s", time, local->username, buff);
+
+	for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
+	{
+		if (local->active_sockets[i] == NULL) // if connection died or their are no connections active, continue to the next socket.
+			continue;
+		send(local->active_sockets[i], fbuff, strlen(fbuff), 0);
+	}
+}
+
+void recieve_message(User* local, fd_set* read_set)
+{
+	// Recieve messages using the FD_ISSET method:
+	for (int i = 0; i < FD_SETSIZE; i++)
+	{
+		if (FD_ISSET(local->active_sockets[i], read_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
+		{
+			char buff[MESSAGE_BUFF_MAX] = ""; // The buffer used to recieve the incoming message
+			recv(local->active_sockets[i], buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
+			//decrypt(buff); // For when the decryption function will be implemented.
+			printf("%s\n", buff);
+		}
+	}
 }
 
 char* get_private_ip()
@@ -605,53 +636,43 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 }
 
 void local_server(User* local)
-{	// This function will run on the server thread continuously, listening to incoming connections. If a remote client is trying to make a connection, the server thread will stop other threads and resume them when actions are done.
+{	// This function will be called if there's an incoming connection to the local server.
+	// The function will be called by a new thread created when there's an incoming connection.
+	
+	struct sockaddr_in remote_client; // Address of the remote client.
+	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
 
-	// If a socket error of local server occurred:
-	if (listen(local->server_socket, 0) == SOCKET_ERROR)
+	// We must save the socket that we use to connect to the user that we have just accepted.
+	SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
+	local->server_flag = TRUE; // Set the server flag to active.
+
+	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
+	int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
+	// Error check for the use of getpeername function:
+	if (error == SOCKET_ERROR)
 	{
-		printf("Listen function failed with error: %d\n", WSAGetLastError());
+		printf("Remote client's address could not be retrieved.\n");
 		exit(LOCAL_SERVER_FAILED);
 	}
 
-	// If a remote user connected to local server:
+	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
+	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
+
+	// If user DOES NOT want to connect to remote client:
+	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
+	{
+		printf("Connection denied!\n");
+		closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
+	}
+
+	// If user DOES want to connect to remote client:
 	else
 	{
-		local->server_flag = TRUE; // Set the server flag to active.
-		struct sockaddr_in remote_client; // Address of the remote client.
-		int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
+		insert_remote_user(local, temp_socket, remote_client);
+		printf("Connection with %s has been created successfully!\n", remote_ip);
 
-		// We must save the socket that we use to connect to the user that we have just accepted.
-		SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
-
-		// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
-		int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
-		// Error check for the use of getpeername function:
-		if (error == SOCKET_ERROR)
-		{
-			printf("Remote client's address could not be retrieved.\n");
-			exit(LOCAL_SERVER_FAILED);
-		}
-
-		char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
-		// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
-
-		// If user DOES NOT want to connect to remote client:
-		if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
-		{
-			printf("Connection denied!\n");
-			closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
-		}
-
-		// If user DOES want to connect to remote client:
-		else
-		{
-			insert_remote_user(local, temp_socket, remote_client);
-			printf("Connection with %s has been created successfully!\n", remote_ip);
-
-			// Advance to the introduction:
-			introduction(local);
-		}
+		// Advance to the introduction:
+		introduction(local);
 	}
 }
 
@@ -668,32 +689,50 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
-	//// Create server and client threads:
-	//DWORD server_thread_id = NULL;
-	//HANDLE server_thread = CreateThread(
-	//	NULL,                   // default security attributes
-	//	0,                      // use default stack size  
-	//	local_server,			// thread function name
-	//	&local_user,					// argument to thread function 
-	//	0,                      // use default creation flags 
-	//	&server_thread_id		// returns the thread identifier 
-	//);
-	//
-	//DWORD client_thread_id = NULL;
-	//HANDLE client_thread = CreateThread(
-	//	NULL,                   // default security attributes
-	//	0,                      // use default stack size  
-	//	local_client,			// thread function name
-	//	&local_user,					// argument to thread function 
-	//	0,                      // use default creation flags 
-	//	&client_thread_id		// returns the thread identifier 
-	//);
+	// Create client thread:
+	DWORD client_thread_id = NULL;
+	HANDLE client_thread = CreateThread(
+		NULL,                   // Default security attributes
+		0,                      // Use default stack size  
+		local_client,			// Thread function name
+		&local,					// Argument to thread function 
+		CREATE_SUSPENDED,       // Thread is suspended right after creation
+		&client_thread_id		// Returns the thread identifier 
+	);
 
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-	printf("For the help menu, type '/help'.\n\n");
+	help_menu();
+	
 	while (TRUE)
-		local_client(&local);
+	{
+		listen(local.server_socket, 0); // Server listens continuously.
+
+		fd_set read_set; // A set that contains an array of sockets used to recieve data (the same sockets are used to recieve and send data).
+		FD_ZERO(&read_set);
+
+		struct timeval timeout;
+		timeout.tv_sec = 5;
+		timeout.tv_usec = 0;
+
+		printf("num clients: %d\n", local.num_clients); //TODO: remove this
+
+		for (int i = 0; i < local.num_clients; i++)
+		{
+			FD_SET(local.active_sockets[i], &read_set);
+		}
+
+		if (select(0, &read_set, NULL, NULL, &timeout) == SOCKET_ERROR)
+		{
+			int error = WSAGetLastError();
+			printf("A socket error has occured: Error number %d .\n", error);
+			exit(SOCK_FAILED);
+		}
+
+		recieve_message(&local, &read_set);
+
 		
+
+	}
 
 	return 0;
 }
