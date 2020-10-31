@@ -58,7 +58,6 @@ typedef struct User
 	char* key;
 }User;
 
-
 typedef struct sockaddr_in sockaddr_in;
 
 // Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
@@ -71,7 +70,7 @@ char* get_private_ip();
 char* get_public_ip();
 int connection_choice(char* ip, unsigned short port);
 void connect_to_remote_user(User* local, sockaddr_in remote_client);
-void send_message(User* local, char* buff, fd_set* psend_set);
+void send_message(User* local, char* buff);
 void print_socket_error();
 
 // All functions:
@@ -139,6 +138,10 @@ void init_user(User* local)
 		print_socket_error();
 		exit(SOCK_FAILED);
 	}
+
+	// Make server socket listen:
+	if (!listen(local->server_socket, 0))
+		print_socket_error();
 
 	// Bind sockets
 	int bind_server = bind(local->server_socket, (struct sockaddr*) &local->server_addr, sizeof(local->server_addr));
@@ -361,14 +364,14 @@ void print_socket_error()
 
 	int error_code = WSAGetLastError();
 
-	printf("Socket error number %d has occurred: ", error_code); // Print error code number:
+	printf("\nSocket error number %d has occurred: ", error_code); // Print error code number:
 
 	// Print error meaning:
 	switch (error_code)
 	{
 	case WSA_INVALID_HANDLE:
-			printf("Specified event object handle is invalid. An application attempts to use an event object, but the specified handle is not valid.\n");
-			break;
+		printf("Specified event object handle is invalid. An application attempts to use an event object, but the specified handle is not valid.\n");
+		break;
 		
 	case WSA_NOT_ENOUGH_MEMORY:
 		printf("Insufficient memory available. An application used a Windows Sockets function that directly maps to a Windows function.The Windows function is indicating a lack of required memory resources.\n");
@@ -774,7 +777,7 @@ void help_menu()
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
-void local_client(User* local, fd_set* psend_set)
+void local_client(User* local)
 {
 	// Print hour and minute of message
 	char time[TIME_SIZE];
@@ -799,12 +802,12 @@ void local_client(User* local, fd_set* psend_set)
 		help_menu();
 
 	else
-		send_message(local, buff, psend_set); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
+		send_message(local, buff); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
 
 }
 
-void send_message(User* local, char* buff, fd_set* psend_set)
-{	// Function recieves local user and a buffer, and distributes the buffer to each remote client.
+void send_message(User* local, char* buff)
+{	// Function recieves local user, a buffer, and a pointer to the set , and distributes the buffer to each remote client.
 
 	char fbuff[MESSAGE_BUFF_MAX] = ""; // Final buffer that will be distributed.
 
@@ -815,8 +818,7 @@ void send_message(User* local, char* buff, fd_set* psend_set)
 	snprintf(fbuff, "| %s | %s: %s", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
-		if (FD_ISSET(local->active_sockets[i], psend_set)) // If socket isn't blocked
-			send(local->active_sockets[i], fbuff, strlen(fbuff), 0); // Send message
+		send(local->active_sockets[i], fbuff, strlen(fbuff), 0);
 		
 }
 
@@ -1106,13 +1108,16 @@ int main(int argc, char* argv[])
 	// Create fd_sets:
 	fd_set recieve_set;	// Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
 	fd_set send_set;	// Will contain all client sockets (only to send data to them).
+	int d = 0;
 
 	while (TRUE) // Main loop:
 	{
+		printf("Iteration %d\n", ++d);
+
 		// Reset the sets at the beginning of every loop iteration:
 		FD_ZERO(&recieve_set);
 		FD_ZERO(&send_set);
-
+		
 		// Insert the server socket to 'recieve_set', so it will always listen for incoming connections.
 		FD_SET(local.server_socket, &recieve_set);
 
@@ -1120,21 +1125,29 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < local.amount_active; ++i)
 			FD_SET(local.active_sockets[i], &recieve_set);
 
-		// Implement the 'select' function in the error check:
-		if (select(0, &recieve_set, &send_set, NULL, NULL) == SOCKET_ERROR)
-			print_socket_error();
-
-		// Check for incoming connections to the local server socket:
-		if (FD_ISSET(local.server_socket, &recieve_set))
-			local_server(&local); // Run the function that manages incoming connections
-
-		// Check for incoming messages from any connected remote user:
+		// Insert the client sockets to 'send_set':
 		for (int i = 0; i < local.amount_active; ++i)
-			if (FD_ISSET(local.active_sockets[i], &recieve_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
-				recieve_message(local.active_sockets[i]);
+			FD_SET(local.active_sockets[i], &send_set);
+
+		// Implement the 'select' function in the error check:
+		if (local.amount_active > 0) 
+		{
+			if (select(0, &recieve_set, &send_set, NULL, NULL) == SOCKET_ERROR)
+				print_socket_error();
+
+			// Check for incoming connections to the local server socket:
+			if (FD_ISSET(local.server_socket, &recieve_set))
+				local_server(&local); // Run the function that manages incoming connections
+
+			// Check for incoming messages from any connected remote user:
+			for (int i = 0; i < local.amount_active; ++i)
+				if (FD_ISSET(local.active_sockets[i], &recieve_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
+					recieve_message(local.active_sockets[i]);
+		}
+		
 
 		// Check if remote users are ready to recieve messages from local user (the check is inside the function 'send_message'):
-		local_client(&local, &send_set);
+		local_client(&local);
 
 	}
 
