@@ -48,12 +48,6 @@ typedef struct User
 
 	struct sockaddr_in* active_addresses; // A pointer to the list of addresses that the local user is connected to.
 
-	int server_flag;	// A flag used to tell if server is now handling an incoming connection or not.
-						// If a remote user is attempting connection to local server, the local client thread
-						// will stop until it's done, and then resume the local client thread.
-						// If server_flag equals FALSE, it means it's inactive.
-						// If server flag equals TRUE, it's active.
-
 	// Key for future encryption feature.
 	char* key;
 }User;
@@ -72,6 +66,8 @@ int connection_choice(char* ip, unsigned short port);
 void connect_to_remote_user(User* local, sockaddr_in remote_client);
 void send_message(User* local, char* buff);
 void print_socket_error();
+void encrypt(char* s);
+void decrypt(char* s);
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -109,9 +105,6 @@ void init_user(User* local)
 
 	// Initialize Encryption key.
 	local->key = KEY; // We copy the key given in the parameters field by reference.
-
-	// Initialize Server flag to 0, meaning currently inactive.
-	local->server_flag = FALSE;
 
 	// Initialize client and server sockets.
 	local->active_sockets = NULL;							// Here we initialize the sockets array to null. 
@@ -157,7 +150,7 @@ void init_user(User* local)
 	
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
-	printf("\nLocal Server is open! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
+	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
 	printf("To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
@@ -189,14 +182,24 @@ char* get_username()
 	return username;
 }
 
-void init_sockaddr_in(sockaddr_in* sa_in, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
+void encrypt(char* s)
+{
+	// TODO: create an encryption algorithm.
+}
+
+void decrypt(char* s)
+{
+	// TODO: create an decryption algorithm.
+}
+
+void init_sockaddr_in(sockaddr_in* paddress, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
 {
 
-	sa_in->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
+	paddress->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
 										// The type of our address, AKA the address' family is AF_INET, 
 										// which represents the IPV4 Internet connection. 
 
-	sa_in->sin_port = htons(port);		// We set the port which we want the server to send data from. 
+	paddress->sin_port = htons(port);		// We set the port which we want the server to send data from. 
 										// The function 'htons()': casts a short from Host to Network Byte Order-
 										// Host-TO-Network-Short .The usual way that we read a number in binary,
 										// which is that the first (most left) digit represents the biggest/most
@@ -206,7 +209,7 @@ void init_sockaddr_in(sockaddr_in* sa_in, char* ip, unsigned short port) // This
 										// standard way to set a port value.
 
 	// We need to set the server's IP address in 'server_addr'. 
-	sa_in->sin_addr.s_addr = inet_addr(ip);
+	paddress->sin_addr.s_addr = inet_addr(ip);
 	// The '.sin_addr', AKA the server's 'actual' address, could be different
 	// types of IPV4 addresses- you can see the different types by clicking
 	// on it; but this is irrelevant for now. For a typical connection,
@@ -235,7 +238,7 @@ int port_validation(unsigned short port) // Function checks if given port is val
 	return FALSE;
 }
 
-void to_invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
+void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
 {
 	sockaddr_in remote_user; // Remote server's address
 	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
@@ -253,11 +256,15 @@ void to_invite(User* local) // When this function is called it asks the user for
 	}
 
 	// Recieve port of destination from user.
-	do
+	printf("Insert the port of the user you want to invite: ");
+	scanf_s("%hu", &remote_port);
+	
+	while (!port_validation(remote_port))
 	{
-		printf("Insert the port of the user you want to invite: ");
-		scanf_s("%hu", &remote_port);
-	} while (!port_validation(remote_port));
+		printf("\nPort is invalid! Please enter a VALID port: ");
+		gets_s(remote_ip, sizeof(remote_ip));
+
+	}
 
 	// Save values into 'remote_user':
 	init_sockaddr_in(&remote_user, remote_ip, remote_port);
@@ -796,7 +803,7 @@ void local_client(User* local)
 	}
 	
 	if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
-		to_invite(local);
+		invite(local);
 
 	if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 		help_menu();
@@ -900,74 +907,162 @@ char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must
 	return "0.0.0.0";
 }
 
-void introduction(User* local) // TODO: create the introduction fuction.
-{	// This function makes an introduction, AKA multiple_handshake.
-	// * To make things more clear, the remote client we need to make the introduction with is the last in the active_addresses and active_sockets array.
+void username_swap(User* local, int is_inviter)
+{
+	// This function implements the name swap of the introduction.
+	// The function is divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa. This is because the steps are different whether you're the inviter or the invited one
+	
+	if (is_inviter == TRUE) // If local user has invited the remote user:
+	{
+		// Send own username to new remote user connected:
+		char local_username[USERNAME_MAX_LENGTH] = "";
+		*local_username = local->username;
+		encrypt(local_username);
+		send(local->active_sockets[local->amount_active - 1], local_username, (int)strlen(local_username), 0); // Sending the username.
 
-	// Step 1: Send the addresses to the remote client:
+		// Recieve username of new remote user connected:
+		char remote_username[USERNAME_MAX_LENGTH] = "";
+		recv(local->active_sockets[local->amount_active - 1], remote_username, (int)strlen(remote_username), 0); // Recieve the username.
+		decrypt(remote_username);
+		printf("You are now connected with %s.\n", remote_username);
+	}
 
-	char buff[MESSAGE_BUFF_MAX]; // The string that the list of addresses will be saved into.
+	else // If the remote user has invited the local user:
+	{
+		// Recieve username of new remote user connected:
+		char remote_username[USERNAME_MAX_LENGTH] = "";
+		recv(local->active_sockets[local->amount_active - 1], remote_username, (int)strlen(remote_username), 0); // Recieve the username.
+		decrypt(remote_username);
+		printf("You are now connected with %s.\n", remote_username);
+
+		// Send own username to new remote user connected:
+		char local_username[USERNAME_MAX_LENGTH] = "";
+		*local_username = local->username;
+		encrypt(local_username);
+		send(local->active_sockets[local->amount_active - 1], local_username, (int)strlen(local_username), 0); // Sending the username.
+	}
+
+}
+
+void send_active_address_list(User* local)
+{
+	// This function implements the sending of the active addresses list from local user to remote user.
+
+	char buff[MESSAGE_BUFF_MAX] = ""; // The string that the list of addresses will be saved into.
 	int index = 0; // An index to the last place that was written into 'buff'.
 
 	// Add to buffer the addresses that the local client is connected to.
-	for (int i = 0; i < (local->amount_active-1) ; i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
+	for (int i = 0; i < (local->amount_active - 1); i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
 	{
 		// Add the IP address and port with a colon between them, and padding between each address.
-		snprintf(buff, "||%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port); 
+		snprintf(buff, "|%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port);
 	}
 	snprintf(buff, "%c", '\0'); // Finish the buffer with an EOF.
 
 	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
-	// encrypt(buff); TODO when the encryption function will be completed.
+	encrypt(buff);
 	send(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Sending the buffer.
+}
 
-	// Step 2: The remote user connects to all addresses it hasn't connected to. Nothing actually happens in the local side.
-	// Sweet nothing :)
+sockaddr_in* recieve_active_address_list(User* local)
+{
+	// The local user recieves a list of addresses that the remote client is connected to. Then, it invites every address it wasn't connected to.
+	// The function returns a list of 'sockaddr_in' addresses which represent the addresses which the remote user is connected to.
 
-	// Step 3: The local user recieves a list of addresses that the remote client is connected to.
-	*buff = ""; // Re-write 'buff'.
+	char buff[MESSAGE_BUFF_MAX] = "";
 	recv(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
-	// decrypt(buff); TODO when the decryption function will be completed.
-	
+	decrypt(buff);
+
 	printf("The list of addresses the remote client has sent is: %s\n", buff); // For debugging.
 
 	sockaddr_in* addresses = NULL; // A pointer to the list of addresses that the remote client has sent.
 	int amount = 0; // The amount of addresses the remote client has sent.
 
-	// The amount of addresses is determined by the amount of "||" paddings.
+	// The amount of addresses is determined by the amount of "|" paddings.
 	for (int i = 0; buff[i] != '\0'; i++)
+		if (buff[i] == '|')
+			++amount;
+
+	// Allocate memory for the address list:
+	addresses = (sockaddr_in*)calloc(amount, sizeof(sockaddr_in));
+	// Memory allocation check:
+	if (addresses == NULL)
 	{
-		if (buff[i] == '|' && buff[i + 1] == '|') // If reached padding reallocate memory to handle one more address.
-		{
-			addresses = (sockaddr_in*)realloc(addresses, (++amount) * sizeof(sockaddr_in));
-			// Memory allocation check:
-			if (addresses == NULL)
-			{
-				printf("Error! Memory could not be reallocated!\n");
-				exit(MEMORY_ALLOC_FAILED);
-			}
-
-		}
-					
-		char ip[IP_ADDR_BUFF_SIZE] = "";
-		char port[5] = ""; // Port can be up to 5 digits.
-		int j = 0;
-
-		// Copy the values from the buffer into the string, while advancing i and j, until reached a colon.
-		while (buff[i] != ':')
-			ip[j++] = buff[i++]; 
-
-		// Copy the values from the buffer into the string, while advancing i and j, until reached a padding.
-		j = 0;
-		while (buff[i + 1] != '|')
-			port[j++] = buff[i++];
-
-		init_sockaddr_in((addresses + amount - 1), ip, (unsigned short)atoi(port)); // Initialize the address with the given values.
+		printf("Error! Memory could not be reallocated!\n");
+		exit(MEMORY_ALLOC_FAILED);
 	}
 
-	// Step 4: The local user makes connections to all addresses recieved to the remote client.
-	for (int i = 0; i < amount; i++)
+	// Copying the IPs and ports into 'sockaddr_in's:
+	char ip[IP_ADDR_BUFF_SIZE] = "";
+	char port[5] = "";
+	int i = 0, j = 0, k = 0, l = 0; // Indices for 'buff', 'ip', 'port' and 'addresses'.
+
+	while (i < strlen(buff))
+	{
+		while (buff[i] != ':') // If reading an IP address, copy every character into 'ip' until reached a colon.
+		{
+			ip[j++] = buff[i++];
+		}
+
+		while (buff[i] != '|' && buff[i] != '\0') // If reading a port, copy every character into 'port' until reached a padding.
+		{
+			port[k++] = buff[i++];
+		}
+
+		init_sockaddr_in((addresses + l), ip, (unsigned short)atoi(port)); // Initialize the address.
+		*ip = ""; // Reset the temp IP
+		*port = ""; // Reset the temp port
+		j, k = 0; // Reset temp IP and port indices.
+		i++; // Continue to next address.
+
+	}
+
+	for (i = 0; i < amount; i++)
+	{
+		for (j = 0; j < local->amount_active; j++)
+		{
+			if ( strcmp( inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->active_addresses[j].sin_addr) ) == 0 ) // If there's an address that both local and remote user are connected to, skip it.
+			{
+				continue;
+			}
+		}
+
 		connect_to_remote_user(local, addresses[i]);
+	}
+}
+
+void introduction(User* local, int is_inviter) 
+{	
+	// This function makes an introduction between the invited (local user) to the inviter (remote user).
+	// * To make things more clear, the remote client we need to make the introduction with is the last in the active_addresses and active_sockets array.
+	// The functions that implement the steps of the introuction are divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa.
+	// This is because the steps are different whether you're the inviter or the invited one.
+
+	// Step 1: Swap usernames with remote user.
+	username_swap(local, is_inviter);
+
+	if (is_inviter == TRUE) // If the local user has invited the remote user:
+	{
+		// Step 2: Send the active address list to the remote user.
+		send_active_address_list(local);
+
+		// Step 3: The remote user connects to all addresses it wasn't connected to. Nothing actually happens in the local side.
+
+		// Step 4+5: The local user recieves the list of addresses that the remote user is connected to, and connects to them.
+		recieve_active_address_list(local, is_inviter);
+	}
+
+	else // If the remote user has invited the local user:
+	{
+		// Step 2+3: The local user recieves the list of addresses that the remote user is connected to, and connects to them.
+		recieve_active_address_list(local, is_inviter);
+
+		// Step 4: Send the active address list to the remote user.
+		send_active_address_list(local);
+
+		// Step 5: The remote user connects to all addresses it wasn't connected to. Nothing actually happens in the local side.
+
+	}
 
 }
 
@@ -995,7 +1090,9 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
 
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
-	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+
+	// Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET));
 	// Memory allocation check:
 	if (local->active_sockets == NULL)
 	{
@@ -1006,9 +1103,10 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
 	local->active_sockets[local->amount_active - 1] = s;
 
-	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in)); // Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
+	// Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
+	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in));
 	// Memory allocation check:
-	if (local->active_sockets == NULL)
+	if (local->active_addresses == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
 		exit(MEMORY_ALLOC_FAILED);
@@ -1047,7 +1145,7 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 }
 
 void local_server(User* local)
-{	// This function will be called if there's an incoming connection to the local server.
+{	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
 	
 	struct sockaddr_in remote_client; // Address of the remote client.
@@ -1055,8 +1153,7 @@ void local_server(User* local)
 
 	// We must save the socket that we use to connect to the user that we have just accepted.
 	SOCKET temp_socket = accept(local->server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
-	local->server_flag = TRUE; // Set the server flag to active.
-
+	
 	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
 	int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
 	// Error check for the use of getpeername function:
@@ -1085,7 +1182,7 @@ void local_server(User* local)
 		printf("Connection with %s has been created successfully!\n", remote_ip);
 
 		// Advance to the introduction:
-		introduction(local);
+		introduction(local, FALSE);
 	}
 }
 
