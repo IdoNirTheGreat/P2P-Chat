@@ -27,6 +27,7 @@ enum error_codes { // Fill in this shit later.
 #define MESSAGE_BUFF_MAX 1024 
 #define TIME_SIZE 8
 #define KEY NULL
+#define IPIFY_URL "api.ipify.org"
 
 #pragma comment(lib,"ws2_32.lib") // Winsock library
 #pragma warning(disable:4996) // In order to use inet_addr() in Visual Studio, we must disable this warning.
@@ -41,9 +42,9 @@ typedef struct User
 	// family (AF_INET in this case), IP address, and port number.
 	struct sockaddr_in server_addr;
 
-	SOCKET server_socket; // Is used only for creating connections. Is used only to create one connection at a time.
+	SOCKET server_socket; // Is used only for accepting connections. Is used only to create one connection at a time.
 	SOCKET* active_sockets; // Array of sockets used for sending and recieving data to multiple peers.
-	int num_clients; // The number of clients currently connected to local user.
+	int amount_active; // The number of clients currently connected to local user.
 
 	struct sockaddr_in* active_addresses; // A pointer to the list of addresses that the local user is connected to.
 
@@ -57,18 +58,12 @@ typedef struct User
 	char* key;
 }User;
 
-// Optional:
-//typedef struct thread_data {
-//	int val1;
-//	int val2;
-//} TDATA, *PTDATA;
-
 
 typedef struct sockaddr_in sockaddr_in;
 
 // Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
 void init_user(User* self);
-void bind_error_code(int bind_code);
+void print_bind_error(int bind_code);
 void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, unsigned short port);
 void get_time(char* buf, size_t buf_size);
 char* get_username();
@@ -126,7 +121,7 @@ void init_user(User* local)
 															// or if invited- the 'accept' function will return a
 															// new client socket.
 
-	local->num_clients = 0;									// Here we initialize the size of the array of client sockets to 0 since its null
+	local->amount_active = 0;									// Here we initialize the size of the array of client sockets to 0 since its null
 															// thus contains no items.
 
 	local->active_addresses = NULL;							// Here we initialize the list of addresses that the
@@ -140,6 +135,7 @@ void init_user(User* local)
 	if (local->server_socket == INVALID_SOCKET)
 	{
 		printf("The server socket could not be created!\n");
+		print_socket_error();
 		exit(SOCK_FAILED);
 	}
 
@@ -150,7 +146,7 @@ void init_user(User* local)
 	if (bind_server != 0)
 	{
 		printf("Bind of user's server has failed.\n");
-		bind_error_code(bind_server);
+		print_bind_error(bind_server);
 		closesocket(local->server_socket);
 		exit(BIND_FAILED);
 	}
@@ -269,80 +265,492 @@ void to_invite(User* local) // When this function is called it asks the user for
 
 }
 
-void bind_error_code(int bind_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
+void print_bind_error(int error_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
 {
-	printf("Error code is %d. ", bind_code); // Print the error code so the user could know it.
+	printf("An error of a socket bind no. %d has occurred: ", error_code); // Print the error code so the user could know it.
 
-	switch (bind_code)
+	switch (error_code)
 	{
 		// The bind() function shall fail if:
 	case EADDRINUSE:
 		printf("The specified address is already in use.\n");
+		break;
 
 	case EADDRNOTAVAIL:
 		printf("The specified address is not available from the local machine.\n");
+		break;
 
 	case EAFNOSUPPORT:
 		printf("The specified address is not a valid address for the address family of the specified socket.\n");
+		break;
 
 	case EBADF:
 		printf("The socket argument is not a valid file descriptor.\n");
+		break;
 
 	case EINVAL:
 		printf("The socket is already bound to an address, and the protocol does not support binding to a new address; or the socket has been shut down.\n");
+		break;
 
 	case ENOTSOCK:
 		printf("The socket argument does not refer to a socket.\n");
+		break;
 
 	case EOPNOTSUPP:
 		printf("The socket type of the specified socket does not support binding to an address.\n");
+		break;
 
 	case EACCES:
 		printf("The specified address is protectedand the current user does not have permission to bind to it.\n");
+		break;
 
 	case EISCONN:
 		printf("The socket is already connected.");
+		break;
 
 	case ELOOP:
 		printf("More than{ SYMLOOP_MAX } symbolic links were encountered during resolution of the pathname in address.\n");
+		break;
 
 	case ENAMETOOLONG:
 		printf("Pathname resolution of a symbolic link produced an intermediate result whose length exceeds{ PATH_MAX }.\n");
+		break;
 
 	case ENOBUFS:
 		printf("Insufficient resources were available to complete the call.\n");
+		break;
 
 		// If the address family of the socket is AF_UNIX, then bind() shall fail if:
 	case EDESTADDRREQ:
 		printf("The address argument is a null pointer.\n");
+		break;
 
 	case EISDIR:
 		printf("The address argument is a null pointer.\n");
+		break;
 
 	case EIO:
 		printf("An I / O error occurred.\n");
+		break;
 
 	case ENOENT:
 		printf("A component of the pathname does not name an existing file or the pathname is an empty string.\n");
+		break;
 
 	case ENOTDIR:
 		printf("A component of the path prefix of the pathname in address is not a directory.\n");
+		break;
 
 	case EROFS:
 		printf("The name would reside on a read - only file system.");
+		break;
 
 	case 0: // In case no error has happened and the function was still called.
 		printf("The bind was successful. No error has occurred\n");
+		break;
 
 	default:
 		printf("An unknown error has occured.\n");
+		break;
 	}
+}
+
+void print_socket_error()
+{ // Function prints out the socket error code meaning.
+
+	int error_code = WSAGetLastError();
+
+	printf("Socket error number %d has occurred: ", error_code); // Print error code number:
+
+	// Print error meaning:
+	switch (error_code)
+	{
+	case WSA_INVALID_HANDLE:
+			printf("Specified event object handle is invalid. An application attempts to use an event object, but the specified handle is not valid.\n");
+			break;
+		
+	case WSA_NOT_ENOUGH_MEMORY:
+		printf("Insufficient memory available. An application used a Windows Sockets function that directly maps to a Windows function.The Windows function is indicating a lack of required memory resources.\n");
+		break;
+
+	case WSA_INVALID_PARAMETER:
+		printf("One or more parameters are invalid.	An application used a Windows Sockets function which directly maps to a Windows function.The Windows function is indicating a problem with one or more parameters.\n");
+		break;
+
+	case WSA_OPERATION_ABORTED:
+		printf("Overlapped operation aborted. An overlapped operation was canceled due to the closure of the socket, or the execution of the SIO_FLUSH command in WSAIoctl.\n");
+		break;
+
+	case WSA_IO_INCOMPLETE:
+		printf("Overlapped I / O event object not in signaled state. The application has tried to determine the status of an overlapped operation which is not yet completed.Applications that use WSAGetOverlappedResult(with the fWait flag set to FALSE) in a polling mode to determine when an overlapped operation has completed, get this error code until the operation is complete.\n");
+		break;
+	
+	case WSA_IO_PENDING:
+		printf("Overlapped operations will complete later. The application has initiated an overlapped operation that cannot be completed immediately.A completion indication will be given later when the operation has been completed.\n");
+		break;
+
+	case WSAEINTR:
+		printf("Interrupted function call. A blocking operation was interrupted by a call to WSACancelBlockingCall.\n");
+		break;
+
+	case WSAEBADF:
+		printf("File handle is not valid. The file handle supplied is not valid.\n");
+		break;
+
+	case WSAEACCES:
+		printf("Permission denied. An attempt was made to access a socket in a way forbidden by its access permissions.An example is using a broadcast address for sendto without broadcast permission being set using setsockopt(SO_BROADCAST). Another possible reason for the WSAEACCES error is that when the bind function is called(on Windows NT 4.0 with SP4 and later), another application, service, or kernel mode driver is bound to the same address with exclusive access.Such exclusive access is a new feature of Windows NT 4.0 with SP4 and later, and is implemented by using the SO_EXCLUSIVEADDRUSE option.\n");
+		break;
+
+	case WSAEFAULT:
+		printf("Bad address. The system detected an invalid pointer address in attempting to use a pointer argument of a call.This error occurs if an application passes an invalid pointer value, or if the length of the buffer is too small.For instance, if the length of an argument, which is a sockaddr structure, is smaller than the sizeof(sockaddr).\n");
+		break;
+
+	case WSAEINVAL:
+		printf("Invalid argument. Some invalid argument was supplied(for example, specifying an invalid level to the setsockopt function).In some instances, it also refers to the current state of the socket—for instance, calling accept on a socket that is not listening.\n");
+		break;
+
+	case WSAEMFILE:
+		printf("Too many open files. Too many open sockets.Each implementation may have a maximum number of socket handles available, either globally, per process, or per thread.\n");
+		break;
+
+	case WSAEWOULDBLOCK:
+		printf("Resource temporarily unavailable. This error is returned from operations on nonblocking sockets that cannot be completed immediately, for example recv when no data is queued to be read from the socket.It is a nonfatal error, and the operation should be retried later.It is normal for WSAEWOULDBLOCK to be reported as the result from calling connect on a nonblocking SOCK_STREAM socket, since some time must elapse for the connection to be established.\n");
+		break;
+
+	case WSAEINPROGRESS:
+		printf("Operation now in progress. A blocking operation is currently executing.Windows Sockets only allows a single blocking operation—per - task or thread—to be outstanding, and if any other function call is made(whether or not it references that or any other socket) the function fails with the WSAEINPROGRESS error.\n");
+		break;
+
+	case WSAEALREADY:
+		printf("Operation already in progress. An operation was attempted on a nonblocking socket with an operation already in progress—that is, calling connect a second time on a nonblocking socket that is already connecting, or canceling an asynchronous request(WSAAsyncGetXbyY) that has already been canceled or completed.\n");
+		break;
+
+	case WSAENOTSOCK:
+		printf("Socket operation on nonsocket. An operation was attempted on something that is not a socket.Either the socket handle parameter did not reference a valid socket, or for select, a member of an fd_set was not valid.\n");
+		break;
+
+	case WSAEDESTADDRREQ:
+		printf("Destination address required. A required address was omitted from an operation on a socket.For example, this error is returned if sendto is called with the remote address of ADDR_ANY.\n");
+		break;
+
+	case WSAEMSGSIZE:
+		printf("Message too long. A message sent on a datagram socket was larger than the internal message buffer or some other network limit, or the buffer used to receive a datagram was smaller than the datagram itself.\n");
+		break;
+
+	case WSAEPROTOTYPE:
+		printf("Protocol wrong type for socket.	A protocol was specified in the socket function call that does not support the semantics of the socket type requested. For example, the ARPA Internet UDP protocol cannot be specified with a socket type of SOCK_STREAM.\n");
+		break;
+
+	case WSAENOPROTOOPT:
+		printf("Bad protocol option. An unknown, invalid or unsupported option or level was specified in a getsockopt or setsockopt call.\n");
+		break;
+
+	case WSAEPROTONOSUPPORT:
+		printf("Protocol not supported.	The requested protocol has not been configured into the system, or no implementation for it exists.For example, a socket call requests a SOCK_DGRAM socket, but specifies a stream protocol.\n");
+		break;
+
+	case WSAESOCKTNOSUPPORT:
+		printf("Socket type not supported. The support for the specified socket type does not exist in this address family.For example, the optional type SOCK_RAW might be selected in a socket call, and the implementation does not support SOCK_RAW sockets at all.\n");
+		break;
+
+	case WSAEOPNOTSUPP:
+		printf("Operation not supported. The attempted operation is not supported for the type of object referenced.Usually this occurs when a socket descriptor to a socket that cannot support this operation is trying to accept a connection on a datagram socket.\n");
+		break;
+
+	case WSAEPFNOSUPPORT:
+		printf("Protocol family not supported. The protocol family has not been configured into the system or no implementation for it exists.This message has a slightly different meaning from WSAEAFNOSUPPORT.However, it is interchangeable in most cases, and all Windows Sockets functions that return one of these messages also specify WSAEAFNOSUPPORT.\n");
+		break;
+
+	case WSAEAFNOSUPPORT:
+		printf("Address family not supported by protocol family. An address incompatible with the requested protocol was used.All sockets are created with an associated address family(that is, AF_INET for Internet Protocols) and a generic protocol type(that is, SOCK_STREAM).This error is returned if an incorrect protocol is explicitly requested in the socket call, or if an address of the wrong family is used for a socket, for example, in sendto.\n");
+		break;
+
+	case WSAEADDRINUSE:
+		printf("Address already in use.	Typically, only one usage of each socket address(protocol / IP address / port) is permitted.This error occurs if an application attempts to bind a socket to an IP address / port that has already been used for an existing socket, or a socket that was not closed properly, or one that is still in the process of closing.For server applications that need to bind multiple sockets to the same port number, consider using setsockopt(SO_REUSEADDR).Client applications usually need not call bind at all—connect chooses an unused port automatically.When bind is called with a wildcard address(involving ADDR_ANY), a WSAEADDRINUSE error could be delayed until the specific address is committed.This could happen with a call to another function later, including connect, listen, WSAConnect, or WSAJoinLeaf.\n");
+		break;
+
+	case WSAEADDRNOTAVAIL:
+		printf("Cannot assign requested address. The requested address is not valid in its context.This normally results from an attempt to bind to an address that is not valid for the local computer.This can also result from connect, sendto, WSAConnect, WSAJoinLeaf, or WSASendTo when the remote address or port is not valid for a remote computer(for example, address or port 0).\n");
+		break;
+
+	case WSAENETDOWN:
+		printf("Network is down. A socket operation encountered a dead network.This could indicate a serious failure of the network system(that is, the protocol stack that the Windows Sockets DLL runs over), the network interface, or the local network itself.\n");
+		break;
+
+	case WSAENETUNREACH:
+		printf("Network is unreachable.	A socket operation was attempted to an unreachable network.This usually means the local software knows no route to reach the remote host.\n");
+		break;
+
+	case WSAENETRESET:
+		printf("Network dropped connection on reset. The connection has been broken due to keep - alive activity detecting a failure while the operation was in progress.It can also be returned by setsockopt if an attempt is made to set SO_KEEPALIVE on a connection that has already failed.\n");
+		break;
+
+	case WSAECONNABORTED:
+		printf("Software caused connection abort. An established connection was aborted by the software in your host computer, possibly due to a data transmission time - out or protocol error.\n");
+		break;
+
+	case WSAECONNRESET:
+		printf("Connection reset by peer. An existing connection was forcibly closed by the remote host.This normally results if the peer application on the remote host is suddenly stopped, the host is rebooted, the host or remote network interface is disabled, or the remote host uses a hard close(see setsockopt for more information on the SO_LINGER option on the remote socket).This error may also result if a connection was broken due to keep - alive activity detecting a failure while one or more operations are in progress.Operations that were in progress fail with WSAENETRESET.Subsequent operations fail with WSAECONNRESET.\n");
+		break;
+
+	case WSAENOBUFS:
+		printf("No buffer space available. An operation on a socket could not be performed because the system lacked sufficient buffer space or because a queue was full.\n");
+		break;
+
+	case WSAEISCONN:
+		printf("Socket is already connected. A connect request was made on an already - connected socket.Some implementations also return this error if sendto is called on a connected SOCK_DGRAM socket(for SOCK_STREAM sockets, the to parameter in sendto is ignored) although other implementations treat this as a legal occurrence.\n");
+		break;
+
+	case WSAENOTCONN:
+		printf("Socket is not connected. A request to send or receive data was disallowed because the socket is not connected and (when sending on a datagram socket using sendto) no address was supplied.Any other type of operation might also return this error—for example, setsockopt setting SO_KEEPALIVE if the connection has been reset.\n");
+		break;
+
+	case WSAESHUTDOWN:
+		printf("Cannot send after socket shutdown. A request to send or receive data was disallowed because the socket had already been shut down in that direction with a previous shutdown call.By calling shutdown a partial close of a socket is requested, which is a signal that sending or receiving, or both have been discontinued.\n");
+		break;
+
+	case WSAETOOMANYREFS:
+		printf("Too many references. Too many references to some kernel object.\n");
+		break;
+
+	case WSAETIMEDOUT:
+		printf("Connection timed out. A connection attempt failed because the connected party did not properly respond after a period of time, or the established connection failed because the connected host has failed to respond.\n");
+		break;
+
+	case WSAECONNREFUSED:
+		printf("Connection refused. No connection could be made because the target computer actively refused it.This usually results from trying to connect to a service that is inactive on the foreign host—that is, one with no server application running.\n");
+		break;
+
+	case WSAELOOP:
+		printf("Cannot translate name. Cannot translate a name.\n");
+		break;
+	
+	case WSAENAMETOOLONG:
+		printf("Name too long. A name component or a name was too long.\n");
+		break;
+
+	case WSAEHOSTDOWN:
+		printf("Host is down. A socket operation failed because the destination host is down.A socket operation encountered a dead host.Networking activity on the local host has not been initiated.These conditions are more likely to be indicated by the error WSAETIMEDOUT.\n");
+		break;
+
+	case WSAEHOSTUNREACH:
+		printf("No route to host. A socket operation was attempted to an unreachable host.See WSAENETUNREACH.\n");
+		break;
+
+	case WSAENOTEMPTY:
+		printf("Directory not empty. Cannot remove a directory that is not empty.\n");
+		break;
+
+	case WSAEPROCLIM:
+		printf("Too many processes. A Windows Sockets implementation may have a limit on the number of applications that can use it simultaneously.WSAStartup may fail with this error if the limit has been reached.\n");
+		break;
+
+	case WSAEUSERS:
+		printf("User quota exceeded. Ran out of user quota.\n");
+		break;
+
+	case WSAEDQUOT:
+		printf("Disk quota exceeded. Ran out of disk quota.\n");
+		break;
+
+	case WSAESTALE:
+		printf("Stale file handle reference. The file handle reference is no longer available.\n");
+		break;
+
+	case WSAEREMOTE:
+		printf("Item is remote.	The item is not available locally.\n");
+		break;
+
+	case WSASYSNOTREADY:
+		printf("Network subsystem is unavailable. This error is returned by WSAStartup if the Windows Sockets implementation cannot function at this time because the underlying system it uses to provide network services is currently unavailable.Users should check That the appropriate Windows Sockets DLL file is in the current path. That they are not trying to use more than one Windows Sockets implementation simultaneously.If there is more than one Winsock DLL on your system, be sure the first one in the path is appropriate for the network subsystem currently loaded. The Windows Sockets implementation documentation to be sure all necessary components are currently installedand configured correctly.\n");
+		break;
+
+	case WSAVERNOTSUPPORTED:
+		printf("Winsock.dll version out of range. The current Windows Sockets implementation does not support the Windows Sockets specification version requested by the application.Check that no old Windows Sockets DLL files are being accessed.\n");
+		break;
+
+	case WSANOTINITIALISED:
+		printf("Successful WSAStartup not yet performed. Either the application has not called WSAStartup or WSAStartup failed.The application may be accessing a socket that the current active task does not own(that is, trying to share a socket between tasks), or WSACleanup has been called too many times.\n");
+		break;
+
+	case WSAEDISCON:
+		printf("Graceful shutdown in progress. Returned by WSARecv and WSARecvFrom to indicate that the remote party has initiated a graceful shutdown sequence.\n");
+		break;
+
+	case WSAENOMORE:
+		printf("No more results. No more results can be returned by the WSALookupServiceNext function.\n");
+		break;
+
+	case WSAECANCELLED:
+		printf("Call has been canceled. A call to the WSALookupServiceEnd function was made while this call was still processing.The call has been canceled.\n");
+		break;
+
+	case WSAEINVALIDPROCTABLE:
+		printf("Procedure call table is invalid. The service provider procedure call table is invalid.A service provider returned a bogus procedure table to Ws2_32.dll.This is usually caused by one or more of the function pointers being NULL.\n");
+		break;
+
+	case WSAEINVALIDPROVIDER:
+		printf("Service provider is invalid. The requested service provider is invalid.This error is returned by the WSCGetProviderInfo and WSCGetProviderInfo32 functions if the protocol entry specified could not be found.This error is also returned if the service provider returned a version number other than 2.0.\n");
+		break;
+
+	case WSAEPROVIDERFAILEDINIT:
+		printf("Service provider failed to initialize. The requested service provider could not be loaded or initialized.This error is returned if either a service provider's DLL could not be loaded (LoadLibrary failed) or the provider's WSPStartup or NSPStartup function failed.\n");
+		break;
+
+	case WSASYSCALLFAILURE:
+		printf("System call failure. A system call that should never fail has failed.This is a generic error code, returned under various conditions. Returned when a system call that should never fail does fail.For example, if a call to WaitForMultipleEvents fails or one of the registry functions fails trying to manipulate the protocol / namespace catalogs.	Returned when a provider does not return SUCCESS and does not provide an extended error code.Can indicate a service provider implementation error.\n");
+		break;
+
+	case WSASERVICE_NOT_FOUND:
+		printf("Service not found. No such service is known.The service cannot be found in the specified name space.\n");
+		break;
+
+	case WSATYPE_NOT_FOUND:
+		printf("Class type not found. The specified class was not found.\n");
+		break;
+
+	case WSA_E_NO_MORE:
+		printf("No more results. No more results can be returned by the WSALookupServiceNext function.\n");
+		break;
+
+	case WSA_E_CANCELLED:
+		printf("Call was canceled.	A call to the WSALookupServiceEnd function was made while this call was still processing.The call has been canceled.\n");
+		break;
+
+	case WSAEREFUSED:
+		printf("Database query was refused.	A database query failed because it was actively refused.\n");
+		break;
+
+	case WSAHOST_NOT_FOUND:
+		printf("Host not found.	No such host is known.The name is not an official host name or alias, or it cannot be found in the database(s) being queried.This error may also be returned for protocoland service queries, and means that the specified name could not be found in the relevant database.\n");
+		break;
+
+	case WSATRY_AGAIN:
+		printf("Nonauthoritative host not found. This is usually a temporary error during host name resolution and means that the local server did not receive a response from an authoritative server.A retry at some time later may be successful.\n");
+		break;
+
+	case WSANO_RECOVERY:
+		printf("This is a nonrecoverable error.	This indicates that some sort of nonrecoverable error occurred during a database lookup.This may be because the database files(for example, BSD - compatible HOSTS, SERVICES, or PROTOCOLS files) could not be found, or a DNS request was returned by the server with a severe error.\n");
+		break;
+
+	case WSANO_DATA:
+		printf("Valid name, no data record of requested type. The requested name is validand was found in the database, but it does not have the correct associated data being resolved for.The usual example for this is a host name - to - address translation attempt(using gethostbyname or WSAAsyncGetHostByName) which uses the DNS(Domain Name Server).An MX record is returned but no A record—indicating the host itself exists, but is not directly reachable.\n");
+		break;
+
+	case WSA_QOS_RECEIVERS:
+		printf("QoS receivers. At least one QoS reserve has arrived.\n");
+		break;
+
+	case WSA_QOS_SENDERS:
+		printf("QoS senders. At least one QoS send path has arrived.\n");
+		break;
+
+	case WSA_QOS_NO_SENDERS:
+		printf("No QoS senders.	There are no QoS senders.\n");
+		break;
+
+	case WSA_QOS_NO_RECEIVERS:
+		printf("QoS no receivers. There are no QoS receivers.\n");
+		break;
+
+	case WSA_QOS_REQUEST_CONFIRMED:
+		printf("QoS request confirmed. The QoS reserve request has been confirmed.\n");
+		break;
+
+	case WSA_QOS_ADMISSION_FAILURE:
+		printf("QoS admission error. A QoS error occurred due to lack of resources.\n");
+		break;
+
+	case WSA_QOS_POLICY_FAILURE:
+		printf("QoS policy failure.	The QoS request was rejected because the policy system couldn't allocate the requested resource within the existing policy.\n");
+		break;
+
+	case WSA_QOS_BAD_STYLE:
+		printf("QoS bad style. An unknown or conflicting QoS style was encountered.\n");
+		break;
+
+	case WSA_QOS_BAD_OBJECT:
+		printf("QoS bad object.	A problem was encountered with some part of the filterspec or the provider - specific buffer in general.\n");
+		break;
+
+	case WSA_QOS_TRAFFIC_CTRL_ERROR:
+		printf("QoS traffic control error. An error with the underlying traffic control(TC) API as the generic QoS request was converted for local enforcement by the TC API.This could be due to an out of memory error or to an internal QoS provider error.\n");
+		break;
+
+	case WSA_QOS_GENERIC_ERROR:
+		printf("QoS generic error. A general QoS error.\n");
+		break;
+
+	case WSA_QOS_ESERVICETYPE:
+		printf("QoS service type error.	An invalid or unrecognized service type was found in the QoS flowspec.\n");
+		break;
+
+	case WSA_QOS_EFLOWSPEC:
+		printf("QoS flowspec error.	An invalid or inconsistent flowspec was found in the QOS structure.\n");
+		break;
+
+	case WSA_QOS_EPROVSPECBUF:
+		printf("Invalid QoS provider buffer. An invalid QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_EFILTERSTYLE:
+		printf("Invalid QoS filter style. An invalid QoS filter style was used.\n");
+		break;
+
+	case WSA_QOS_EFILTERTYPE:
+		printf("Invalid QoS filter type. An invalid QoS filter type was used.\n");
+		break;
+
+	case WSA_QOS_EFILTERCOUNT:
+		printf("Incorrect QoS filter count.	An incorrect number of QoS FILTERSPECs were specified in the FLOWDESCRIPTOR.\n");
+		break;
+
+	case WSA_QOS_EOBJLENGTH:
+		printf("Invalid QoS object length. An object with an invalid ObjectLength field was specified in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_EFLOWCOUNT:
+		printf("Incorrect QoS flow count. An incorrect number of flow descriptors was specified in the QoS structure.\n");
+		break;
+
+	case WSA_QOS_EUNKOWNPSOBJ:
+		printf("Unrecognized QoS object. An unrecognized object was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_EPOLICYOBJ:
+		printf("Invalid QoS policy object. An invalid policy object was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_EPSFLOWSPEC:
+		printf("Invalid QoS provider - specific flowspec. An invalid or inconsistent flowspec was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_EPSFILTERSPEC:
+		printf("Invalid QoS provider - specific filterspec.	An invalid FILTERSPEC was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_ESDMODEOBJ:
+		printf("Invalid QoS shape discard mode object. An invalid shape discard mode object was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_ESHAPERATEOBJ:
+		printf("Invalid QoS shaping rate object. An invalid shaping rate object was found in the QoS provider - specific buffer.\n");
+		break;
+
+	case WSA_QOS_RESERVED_PETYPE:
+		printf("Reserved policy QoS element type. A reserved policy element was found in the QoS provider - specific buffer.\n");
+	
+	default:
+		printf("An unknown socket error has occurred. ");
+		break;
+	}
+
 }
 
 void terminate_all_connections(User* local) // This function terminates all connection of a user by closing sockets.
 {
 	closesocket(local->server_socket);
-	for (int i = 0; i < local->num_clients; i++)
+	for (int i = 0; i < local->amount_active; i++)
 		closesocket(local->active_sockets[i]);
 }
 
@@ -360,7 +768,7 @@ void help_menu()
 	printf("To send a message in the chat room, just type it!\n");
 	printf("To invite someone, type '/invite'. Then, insert their IP address and port.\n");
 	printf("Don't forget to insert the user's public IP if they're not in the same network as you.\n");
-	printf("FYI, The chat currently supports only IPV4 addresses. If you have an IPV6 connection, don't patronize just because you have IPV6.\n");
+	printf("FYI, The chat currently supports only IPV4 addresses.\n");
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
@@ -404,7 +812,7 @@ void send_message(User* local, char* buff)
 	// Final-buffer is made out of a time-stamp, username and original buffer:
 	snprintf(fbuff, "| %s | %s: %s", time, local->username, buff);
 
-	for (int i = 0; i < local->num_clients; i++) // Send to each remote user the message.
+	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
 	{
 		if (local->active_sockets[i] == NULL) // if connection died or their are no connections active, continue to the next socket.
 			continue;
@@ -412,19 +820,14 @@ void send_message(User* local, char* buff)
 	}
 }
 
-void recieve_message(User* local, fd_set* read_set)
-{
-	// Recieve messages using the FD_ISSET method:
-	for (int i = 0; i < FD_SETSIZE; i++)
-	{
-		if (FD_ISSET(local->active_sockets[i], read_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
-		{
-			char buff[MESSAGE_BUFF_MAX] = ""; // The buffer used to recieve the incoming message
-			recv(local->active_sockets[i], buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
-			//decrypt(buff); // For when the decryption function will be implemented.
-			printf("%s\n", buff);
-		}
-	}
+void recieve_message(SOCKET sender)
+{	// Function recieves the socket connected to user that sent a message, and prints the message.
+	
+	char buff[MESSAGE_BUFF_MAX] = ""; // The buffer used to recieve the incoming message
+	recv(sender, buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
+	//decrypt(buff); // For when the decryption function will be implemented.
+	printf("%s\n", buff);
+
 }
 
 char* get_private_ip()
@@ -461,32 +864,38 @@ char* get_private_ip()
 char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must be written so a machine inside
 						//	the network could connect to a machine outside of the network.
 {
-	// We'll use the Ipify API for this:
-	sockaddr_in ipify;
-	init_sockaddr_in(&ipify, "108.171.202.203", 443);
+	//// We'll use the Ipify API for this:
+	//
+	//// Retrieve Ipify IP:
+	//struct hostent* ipify_info = gethostbyname(IPIFY_URL);
+	//printf("Host name: %s\n", ipify_info->h_name);
+	//printf("IP address: %s\n", inet_ntoa(*((struct in_addr*)ipify_info->h_addr)));
+	//sockaddr_in ipify;
+	//init_sockaddr_in(&ipify, ipify_info->h_addr, 443);
 
-	// Create the socket for the request:
-	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0);
+	//// Create the socket for the request:
+	//SOCKET temp = socket(AF_INET, SOCK_STREAM, 0);
 
-	// Create connection:
-	if (!connect(temp, (struct sockaddr*)&ipify, sizeof(ipify)))
-	{
-		printf("Connection with 'Ipify.org' has failed.\n");
-		return "0.0.0.0";
-	}
+	//// Create connection:
+	//if (!connect(temp, (struct sockaddr*)&ipify, sizeof(ipify)))
+	//{
+	//	printf("Connection with 'Ipify.org' has failed.\n");
+	//	return "0.0.0.0";
+	//}
 
-	//// Send request:
-	//char* request = "GET / HTTP/1.0\r\nHost: api.ipify.org \r\n User-Agent: " AGENT_NAME "\r\n\r\n";
-	//send(temp, "GET / HTTP / 1.0\r\n", (int)strlen("GET / HTTP/1.0\r\n"), 0); // The request is an empty string.
+	////// Send request:
+	////char* request = "GET / HTTP/1.0\r\nHost: api.ipify.org \r\n User-Agent: " AGENT_NAME "\r\n\r\n";
+	////send(temp, "GET / HTTP / 1.0\r\n", (int)strlen("GET / HTTP/1.0\r\n"), 0); // The request is an empty string.
 
-	// Recieve IP from Ipify server:
-	char public_ip[IP_ADDR_BUFF_SIZE] = "";
-	recv(temp, public_ip, IP_ADDR_BUFF_SIZE, 0);
+	//// Recieve IP from Ipify server:
+	//char public_ip[IP_ADDR_BUFF_SIZE] = "";
+	//recv(temp, public_ip, IP_ADDR_BUFF_SIZE, 0);
 
-	// Close the socket to leave no open connections:
-	close(temp);
+	//// Close the socket to leave no open connections:
+	//close(temp);
 
-	return public_ip;
+	//return public_ip;
+	return "0.0.0.0";
 }
 
 void introduction(User* local) // TODO: create the introduction fuction.
@@ -499,7 +908,7 @@ void introduction(User* local) // TODO: create the introduction fuction.
 	int index = 0; // An index to the last place that was written into 'buff'.
 
 	// Add to buffer the addresses that the local client is connected to.
-	for (int i = 0; i < (local->num_clients-1) ; i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
+	for (int i = 0; i < (local->amount_active-1) ; i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
 	{
 		// Add the IP address and port with a colon between them, and padding between each address.
 		snprintf(buff, "||%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port); 
@@ -508,14 +917,14 @@ void introduction(User* local) // TODO: create the introduction fuction.
 
 	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
 	// encrypt(buff); TODO when the encryption function will be completed.
-	send(local->active_sockets[local->num_clients - 1], buff, (int)strlen(buff), 0); // Sending the buffer.
+	send(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Sending the buffer.
 
 	// Step 2: The remote user connects to all addresses it hasn't connected to. Nothing actually happens in the local side.
 	// Sweet nothing :)
 
 	// Step 3: The local user recieves a list of addresses that the remote client is connected to.
 	*buff = ""; // Re-write 'buff'.
-	recv(local->active_sockets[local->num_clients - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
+	recv(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
 	// decrypt(buff); TODO when the decryption function will be completed.
 	
 	printf("The list of addresses the remote client has sent is: %s\n", buff); // For debugging.
@@ -583,8 +992,8 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
 	// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
 
-	++(local->num_clients); // Increment the size of the client-sockets array by one.
-	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->num_clients) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
+	++(local->amount_active); // Increment the size of the client-sockets array by one.
+	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET)); // Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
 	// Memory allocation check:
 	if (local->active_sockets == NULL)
 	{
@@ -593,9 +1002,9 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	}
 
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
-	local->active_sockets[local->num_clients - 1] = s;
+	local->active_sockets[local->amount_active - 1] = s;
 
-	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->num_clients) * sizeof(sockaddr_in)); // Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
+	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in)); // Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
 	// Memory allocation check:
 	if (local->active_sockets == NULL)
 	{
@@ -604,7 +1013,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	}
 
 	// We add the address of the remote client we have just connected to, to the list of active addresses in 'local'.
-	local->active_addresses[local->num_clients - 1] = remote_user;
+	local->active_addresses[local->amount_active - 1] = remote_user;
 
 	// Function finishes successfully.
 }
@@ -656,7 +1065,9 @@ void local_server(User* local)
 	}
 
 	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
-	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
+	
+	// We must accept the connection at the first place, and then if the user doesn't
+	// want to accept the connection we will close it.
 
 	// If user DOES NOT want to connect to remote client:
 	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
@@ -689,48 +1100,41 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
-	// Create client thread:
-	DWORD client_thread_id = NULL;
-	HANDLE client_thread = CreateThread(
-		NULL,                   // Default security attributes
-		0,                      // Use default stack size  
-		local_client,			// Thread function name
-		&local,					// Argument to thread function 
-		CREATE_SUSPENDED,       // Thread is suspended right after creation
-		&client_thread_id		// Returns the thread identifier 
-	);
-
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 	help_menu();
-	
-	while (TRUE)
+
+	// Create fd_sets:
+	fd_set recieve_set;	// Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
+	fd_set send_set;	// Will contain all client sockets (only to send data to them).
+
+	while (TRUE) // Main loop:
 	{
-		listen(local.server_socket, 0); // Server listens continuously.
+		// Reset the sets at the beginning of every loop iteration:
+		FD_ZERO(&recieve_set);
+		FD_ZERO(&send_set);
 
-		fd_set read_set; // A set that contains an array of sockets used to recieve data (the same sockets are used to recieve and send data).
-		FD_ZERO(&read_set);
+		// Insert the server socket to 'recieve_set', so it will always listen for incoming connections.
+		FD_SET(local.server_socket, &recieve_set);
 
-		struct timeval timeout;
-		timeout.tv_sec = 5;
-		timeout.tv_usec = 0;
+		// Insert the client sockets to 'recieve_set', so it could recieve messages from the users connected to local user.
+		for (int i = 0; i < local.amount_active; ++i)
+			FD_SET(local.active_sockets[i], &recieve_set);
 
-		printf("num clients: %d\n", local.num_clients); //TODO: remove this
+		// Run local client
+		local_client(&local);
 
-		for (int i = 0; i < local.num_clients; i++)
-		{
-			FD_SET(local.active_sockets[i], &read_set);
-		}
+		// Implement the 'select' function in the error check:
+		if (select(0, &recieve_set, &send_set, NULL, NULL) == SOCKET_ERROR)
+			print_socket_error();
 
-		if (select(0, &read_set, NULL, NULL, &timeout) == SOCKET_ERROR)
-		{
-			int error = WSAGetLastError();
-			printf("A socket error has occured: Error number %d .\n", error);
-			exit(SOCK_FAILED);
-		}
+		// Check for incoming connections to the local server socket:
+		if (FD_ISSET(local.server_socket, &recieve_set))
+			local_server(&local); // Run the function that manages incoming connections
 
-		recieve_message(&local, &read_set);
-
-		
+		// Check for incoming messages from any connected remote user:
+		for (int i = 0; i < local.amount_active; ++i)
+			if (FD_ISSET(local.active_sockets[i], &recieve_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
+				recieve_message(local.active_sockets[i]);
 
 	}
 
