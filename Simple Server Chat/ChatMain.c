@@ -272,8 +272,6 @@ void invite(User* local) // When this function is called it asks the user for an
 	// Create connection to remote user:
 	connect_to_remote_user(local, remote_user);
 
-	printf("Connection with %s:%hu was created!\n", remote_ip, remote_port);
-
 }
 
 void print_bind_error(int error_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
@@ -1141,6 +1139,7 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 
 	// Insert the new socket and address of the connection to the remote user into local.
 	insert_remote_user(local, temp, remote_user); 
+	printf("Connection with %s:%hu was created!\n", inet_ntoa(remote_user.sin_addr), remote_user.sin_port);
 
 }
 
@@ -1168,15 +1167,17 @@ void local_server(User* local)
 	// We must accept the connection at the first place, and then if the user doesn't
 	// want to accept the connection we will close it.
 
+	int choice = connection_choice(remote_ip, remote_client.sin_port);
+
 	// If user DOES NOT want to connect to remote client:
-	if (!connection_choice(remote_ip, remote_client.sin_port)) // If user chose to deny connection:
+	if (choice == FALSE) // If user chose to deny connection:
 	{
 		printf("Connection denied!\n");
 		closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
 	}
 
 	// If user DOES want to connect to remote client:
-	else
+	if (choice == TRUE)
 	{
 		insert_remote_user(local, temp_socket, remote_client);
 		printf("Connection with %s has been created successfully!\n", remote_ip);
