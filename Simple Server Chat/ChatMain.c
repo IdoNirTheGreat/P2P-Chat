@@ -71,7 +71,8 @@ char* get_private_ip();
 char* get_public_ip();
 int connection_choice(char* ip, unsigned short port);
 void connect_to_remote_user(User* local, sockaddr_in remote_client);
-void send_message(User* local, char* buff);
+void send_message(User* local, char* buff, fd_set* psend_set);
+void print_socket_error();
 
 // All functions:
 void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
@@ -752,6 +753,7 @@ void terminate_all_connections(User* local) // This function terminates all conn
 	closesocket(local->server_socket);
 	for (int i = 0; i < local->amount_active; i++)
 		closesocket(local->active_sockets[i]);
+	WSACleanup();
 }
 
 void get_time(char* buff, size_t buff_size) {
@@ -764,7 +766,7 @@ void get_time(char* buff, size_t buff_size) {
 
 void help_menu()
 {
-	printf("\nIdo Nir's P2P help menu:\n\n");
+	printf("Help Menu:\n");
 	printf("To send a message in the chat room, just type it!\n");
 	printf("To invite someone, type '/invite'. Then, insert their IP address and port.\n");
 	printf("Don't forget to insert the user's public IP if they're not in the same network as you.\n");
@@ -772,7 +774,7 @@ void help_menu()
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
-void local_client(User* local)
+void local_client(User* local, fd_set* psend_set)
 {
 	// Print hour and minute of message
 	char time[TIME_SIZE];
@@ -797,11 +799,11 @@ void local_client(User* local)
 		help_menu();
 
 	else
-		send_message(local, buff); // Function recieves local user and a buffer, and distributes the buffer to each remote client.
+		send_message(local, buff, psend_set); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
 
 }
 
-void send_message(User* local, char* buff)
+void send_message(User* local, char* buff, fd_set* psend_set)
 {	// Function recieves local user and a buffer, and distributes the buffer to each remote client.
 
 	char fbuff[MESSAGE_BUFF_MAX] = ""; // Final buffer that will be distributed.
@@ -813,11 +815,9 @@ void send_message(User* local, char* buff)
 	snprintf(fbuff, "| %s | %s: %s", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
-	{
-		if (local->active_sockets[i] == NULL) // if connection died or their are no connections active, continue to the next socket.
-			continue;
-		send(local->active_sockets[i], fbuff, strlen(fbuff), 0);
-	}
+		if (FD_ISSET(local->active_sockets[i], psend_set)) // If socket isn't blocked
+			send(local->active_sockets[i], fbuff, strlen(fbuff), 0); // Send message
+		
 }
 
 void recieve_message(SOCKET sender)
@@ -1100,8 +1100,8 @@ int main(int argc, char* argv[])
 	User local;
 	init_user(&local);
 
-	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 	help_menu();
+	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
 	// Create fd_sets:
 	fd_set recieve_set;	// Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
@@ -1120,9 +1120,6 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < local.amount_active; ++i)
 			FD_SET(local.active_sockets[i], &recieve_set);
 
-		// Run local client
-		local_client(&local);
-
 		// Implement the 'select' function in the error check:
 		if (select(0, &recieve_set, &send_set, NULL, NULL) == SOCKET_ERROR)
 			print_socket_error();
@@ -1135,6 +1132,9 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < local.amount_active; ++i)
 			if (FD_ISSET(local.active_sockets[i], &recieve_set)) // Returns true if there is a pending message recieved by the socket 'local.active_sockets[i]'.
 				recieve_message(local.active_sockets[i]);
+
+		// Check if remote users are ready to recieve messages from local user (the check is inside the function 'send_message'):
+		local_client(&local, &send_set);
 
 	}
 
