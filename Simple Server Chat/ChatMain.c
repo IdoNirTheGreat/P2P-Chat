@@ -132,7 +132,7 @@ void init_user(User* local) // Function initializes a given user to default valu
 		print_socket_error();
 		exit(SOCK_FAILED);
 	}
-	
+	printf("Server socket created\n");
 	// Bind server socket:
 	int bind_server = bind(local->server_socket, (struct sockaddr*)&local->server_addr, sizeof(local->server_addr));
 	
@@ -144,15 +144,15 @@ void init_user(User* local) // Function initializes a given user to default valu
 		closesocket(local->server_socket);
 		exit(BIND_FAILED);
 	}
-
+	printf("Server binded\n");
 	// Make server socket listen for connections:
-	if (listen(local->server_socket, 0) != 0)
+	if (listen(local->server_socket, 5) != 0)
 	{
 		print_socket_error();
 		closesocket(local->server_socket);
 		exit(SOCK_FAILED);
 	}
-	
+	printf("Socket listening\n");
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
 	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
@@ -1218,44 +1218,60 @@ int main(int argc, char* argv[])
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
-	DWORD client_thread_id = NULL;
-	HANDLE client_thread = CreateThread(
-		NULL,                   // Default security attributes
-		0,                      // Use default stack size  
-		local_client,			// Thread function name
-		&local,					// Argument to thread function 
-		0,						// Create thread and run it instantly
-		&client_thread_id		// Returns the thread identifier 
-	);
+	//DWORD client_thread_id = NULL;
+	//HANDLE client_thread = CreateThread(
+	//	NULL,                   // Default security attributes
+	//	0,                      // Use default stack size  
+	//	local_client,			// Thread function name
+	//	&local,					// Argument to thread function 
+	//	0,						// Create thread and run it instantly
+	//	&client_thread_id		// Returns the thread identifier 
+	//);
 
 	SOCKET temp_socket; // To recieve the socket returned by the 'accept' function.
 	struct sockaddr_in remote_client; // Address of the remote client.
-	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'accept' function.
+	int size_of_sockaddr = sizeof(struct sockaddr_in); // The size of the address, for the use of the 'accept' function.
+	
+	int val;
+	socklen_t len = sizeof(val);
+	if (getsockopt(local.server_socket, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == -1)
+		printf("server socket %d is not a socket\n", local.server_socket);
+	else if (val)
+		printf("server socket %d is a listening socket\n", local.server_socket);
+	else
+		printf("server socket %d is a non-listening socket\n", local.server_socket);
 
-	while (TRUE) // Main loop:
+	temp_socket = accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
+	
+	if (temp_socket == INVALID_SOCKET)
 	{
-		// If the server socket accepts a connection:
-		if ( temp_socket = accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr) != SOCKET_ERROR)
-		{
-			SuspendThread(client_thread);
-			
-			// Create server thread:
-			DWORD server_thread_id = NULL;
-			HANDLE server_thread = CreateThread(
-				NULL,										// Default security attributes
-				0,											// Use default stack size  
-				local_server,								// Thread function name
-				&local, temp_socket, &remote_client,		// Argument to thread function 
-				0,											// Create server thread and run it immediately
-				&server_thread_id							// Returns the thread identifier 
-			);
-
-			TerminateThread(server_thread, NULL);
-			ResumeThread(client_thread);
-		}
-
-
+		printf("Connection failed.\n");
+		return 1;
 	}
+
+	printf("Connection Succeeded.\n");
+	//while (TRUE) // Main loop:
+	//{
+	//	// If the server socket accepts a connection:
+	//	if (accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr) != INVALID_SOCKET)
+	//	{
+	//		SuspendThread(client_thread);
+	//		
+	//		// Create server thread:
+	//		DWORD server_thread_id = NULL;
+	//		HANDLE server_thread = CreateThread(
+	//			NULL,										// Default security attributes
+	//			0,											// Use default stack size  
+	//			local_server,								// Thread function name
+	//			&local, temp_socket, &remote_client,		// Argument to thread function 
+	//			0,											// Create server thread and run it immediately
+	//			&server_thread_id							// Returns the thread identifier 
+	//		);
+	//		TerminateThread(server_thread, NULL);
+	//		ResumeThread(client_thread);
+	//	}
+	//}
+
 
 	return 0;
 }
