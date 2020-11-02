@@ -89,20 +89,6 @@ void init_user(User* local)
 	strcpy(local->username, username);
 	free(username);
 
-	// Create a 'sockaddr_in' for the servers address:
-	char* listen_ip = get_private_ip();
-	unsigned short accept_port = 0; // To choose a randomly available port.
-	
-	// Initialize the local server's address.
-	init_sockaddr_in(&local->server_addr, listen_ip, accept_port);
-															// Here we create the local server's address:
-															// we input the init_sockaddr_in function a
-															// pointer to the address we want to change 
-															// (to change it by reference), the ipv4 address
-															// that the local user wants other users to connect
-															// to, and the port he wants to open for the accept
-															// to happen.
-
 	// Initialize Encryption key.
 	local->key = KEY; // We copy the key given in the parameters field by reference.
 
@@ -121,6 +107,20 @@ void init_user(User* local)
 															// local user is connected to, to NULL - because when
 															// the user is initialized, it's not connected to anyone.
 
+	// Create a 'sockaddr_in' for the servers address:
+	char* local_ip = get_private_ip();
+	unsigned short accept_port = 0; // To choose a randomly available port.
+
+	// Initialize the local server's address.
+	init_sockaddr_in(&(local->server_addr), local_ip, accept_port);
+															// Here we create the local server's address:
+															// we input the init_sockaddr_in function a
+															// pointer to the address we want to change 
+															// (to change it by reference), the ipv4 address
+															// that the local user wants other users to connect
+															// to, and the port he wants to open for the accept
+															// to happen.
+
 	local->server_socket = socket(AF_INET, SOCK_STREAM, 0); // Here we initialize the socket that we use only 
 															// to accept connections from other users.
 
@@ -131,14 +131,10 @@ void init_user(User* local)
 		print_socket_error();
 		exit(SOCK_FAILED);
 	}
-
-	// Make server socket listen:
-	if (!listen(local->server_socket, 0))
-		print_socket_error();
-
-	// Bind sockets
-	int bind_server = bind(local->server_socket, (struct sockaddr*) &local->server_addr, sizeof(local->server_addr));
-
+	
+	// Bind server socket:
+	int bind_server = bind(local->server_socket, (struct sockaddr*)&local->server_addr, sizeof(local->server_addr));
+	
 	// Bind error check:
 	if (bind_server != 0)
 	{
@@ -146,6 +142,14 @@ void init_user(User* local)
 		print_bind_error(bind_server);
 		closesocket(local->server_socket);
 		exit(BIND_FAILED);
+	}
+
+	// Make server socket listen:
+	if (listen(local->server_socket, 0) != 0)
+	{
+		print_socket_error();
+		closesocket(local->server_socket);
+		exit(SOCK_FAILED);
 	}
 	
 	int size = sizeof(local->server_addr);
@@ -192,14 +196,14 @@ void decrypt(char* s)
 	// TODO: create an decryption algorithm.
 }
 
-void init_sockaddr_in(sockaddr_in* paddress, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the server's address.
+void init_sockaddr_in(sockaddr_in* paddress, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
 {
 
 	paddress->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
 										// The type of our address, AKA the address' family is AF_INET, 
 										// which represents the IPV4 Internet connection. 
 
-	paddress->sin_port = htons(port);		// We set the port which we want the server to send data from. 
+	paddress->sin_port = htons(port);	// We set the port which we want the server to send data from. 
 										// The function 'htons()': casts a short from Host to Network Byte Order-
 										// Host-TO-Network-Short .The usual way that we read a number in binary,
 										// which is that the first (most left) digit represents the biggest/most
