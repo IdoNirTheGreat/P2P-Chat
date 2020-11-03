@@ -91,18 +91,21 @@ void init_user(User* local) // Function initializes a given user to default valu
 	// Initialize Encryption key.
 	local->key = KEY; // We copy the key given in the parameters field by reference.
 
+	local->amount_active = 0;								// Here we initialize the size of the array of client sockets to 0 since its null
+															// thus contains no items.
+
 	// Initialize client and server sockets.
-	local->active_sockets = NULL;							// Here we initialize the sockets array to null. 
+	local->active_sockets = (SOCKET*)calloc(local->amount_active, sizeof(SOCKET));						
+															// Here we initialize the sockets array to null. 
 															// We'll later use those sockets to send and 
 															// recieve data to other users. We'll create
 															// sockets in this array using the 'invite' function,
 															// or if invited- the 'accept' function will return a
 															// new client socket.
 
-	local->amount_active = 0;								// Here we initialize the size of the array of client sockets to 0 since its null
-															// thus contains no items.
 
-	local->active_addresses = NULL;							// Here we initialize the list of addresses that the
+	local->active_addresses = (sockaddr_in*)calloc(local->amount_active, sizeof(sockaddr_in));							
+															// Here we initialize the list of addresses that the
 															// local user is connected to, to NULL - because when
 															// the user is initialized, it's not connected to anyone.
 
@@ -132,7 +135,7 @@ void init_user(User* local) // Function initializes a given user to default valu
 		print_socket_error();
 		exit(SOCK_FAILED);
 	}
-	printf("Server socket created\n");
+	
 	// Bind server socket:
 	int bind_server = bind(local->server_socket, (struct sockaddr*)&local->server_addr, sizeof(local->server_addr));
 	
@@ -144,17 +147,10 @@ void init_user(User* local) // Function initializes a given user to default valu
 		closesocket(local->server_socket);
 		exit(BIND_FAILED);
 	}
-	printf("Server binded\n");
-
+	
 	// Make server socket listen for connections:
-	/*if (listen(local->server_socket, 5) != 0)
-	{
-		print_socket_error();
-		closesocket(local->server_socket);
-		exit(SOCK_FAILED);
-	}*/
 	listen(local->server_socket, 3);
-	printf("Socket listening\n");
+	
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
 	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), ntohs(local->server_addr.sin_port));
@@ -1066,7 +1062,7 @@ void introduction(User* local, int is_inviter)
 
 int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
 {
-	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n):\n", ip, port);
+	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n):", ip, port);
 	char* choice[2];
 	gets_s(choice, 2); 
 
@@ -1082,12 +1078,12 @@ int connection_choice(char* ip, unsigned short port) // Function recieves the ip
 	return connection_choice(ip, port); // Make it recursive just for the hell of it? :)
 }
 
-void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
-{	// This function recieves the 'local' user and a socket 's'.
-	// The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
-	// OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
-	// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
-	// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
+void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This function recieves the 'local' user and a socket 's'.
+																		// The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
+																		// OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
+																		// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
+																		// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
+{	
 
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
 
@@ -1101,7 +1097,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	}
 
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
-	local->active_sockets[local->amount_active - 1] = s;
+	local->active_sockets[(local->amount_active) - 1] = s;
 
 	// Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
 	// Memory allocation check:
@@ -1112,7 +1108,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	}
 
 	// We add the address of the remote client we have just connected to, to the list of active addresses in 'local'.
-	local->active_addresses[local->amount_active - 1] = remote_user;
+	local->active_addresses[(local->amount_active) - 1] = remote_user;
 
 	// Function finishes successfully.
 	printf("Connection with %s:%hu was created!\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
@@ -1144,33 +1140,30 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 
 }
 
-void local_server(User* local, SOCKET temp_socket, sockaddr_in remote_client)
+void local_server(User* local, SOCKET temp_socket)
 {	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
-	
-	printf("Local server has started running:\n");
 
-	int size_of_sockaddr = sizeof(struct sockaddr_in); // the size fo the address, for the use of the 'getpeername' function.
+	// We cannot pass the sockaddr_in struct to the thread, so we pass the ip and port in initialize the address inside this function:
+	sockaddr_in remote_client; 
+	int sockaddr_in_size = sizeof(sockaddr_in);
+	getpeername(temp_socket, (struct sockaddr*)&remote_client, &sockaddr_in_size);
 
-	// Retrieve the address remote client which is trying to connect to local server, so the user could choose if to accept or deny connection.
-	int error = getpeername(temp_socket, &remote_client, &size_of_sockaddr);
-	// Error check for the use of getpeername function:
-	if (error == SOCKET_ERROR)
-	{
-		printf("Remote client's address could not be retrieved.\n");
-		exit(LOCAL_SERVER_FAILED);
-	}
+	char remote_ip[IP_ADDR_BUFF_SIZE] = "";
+	*remote_ip = inet_ntoa(remote_client.sin_addr);
+	unsigned short remote_port = ntohs(remote_client.sin_port);
+
+	printf("Connection with %s:%hu.\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
+	printf("Connection with %s:%hu.\n", remote_ip, remote_port);
 
 	local->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 								// Server flag state will return to FALSE after the connection is either denied,
 								// or after the introduction has ended after connection was granted.
-
-	char* remote_ip = inet_ntoa(remote_client.sin_addr); // Store the ip in a string;
 	
 	// We must accept the connection at the first place, and then if the user doesn't
 	// want to accept the connection we will close it.
 
-	int choice = connection_choice(remote_ip, remote_client.sin_port);
+	int choice = connection_choice(remote_ip, remote_port);
 
 	// If user DOES NOT want to connect to remote client:
 	if (choice == FALSE) // If user chose to deny connection:
@@ -1221,13 +1214,11 @@ int main(int argc, char* argv[])
 	);
 
 	SOCKET temp_socket; // To recieve the socket returned by the 'accept' function.
-	struct sockaddr_in remote_client; // Address of the remote client.
-	int size_of_sockaddr = sizeof(struct sockaddr_in); // The size of the address, for the use of the 'accept' function.
 	
 	while (TRUE) // Main loop:
 	{
 		// If the server socket accepts a connection:
-		if (temp_socket = accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr) == SOCKET_ERROR)
+		if (temp_socket = accept(local.server_socket, NULL, NULL) == SOCKET_ERROR)
 		{
 			exit(SOCK_FAILED);
 		}
@@ -1235,20 +1226,20 @@ int main(int argc, char* argv[])
 
 		else
 		{
-			printf("Someone connected to local server\n");
 			SuspendThread(client_thread);
 			
 			// Create server thread:
 			DWORD server_thread_id = NULL;
 			HANDLE server_thread = CreateThread(
-				NULL,										// Default security attributes
-				0,											// Use default stack size  
-				local_server,								// Thread function name
-				&local, temp_socket, &remote_client,		// Argument to thread function 
-				0,											// Create server thread and run it immediately
-				&server_thread_id							// Returns the thread identifier 
+				NULL,																					// Default security attributes
+				0,																						// Use default stack size  
+				local_server,																			// Thread function name
+				&local, temp_socket,// inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port),	// Arguments to thread function 
+				0,																						// Create server thread and run it immediately
+				&server_thread_id																		// Returns the thread identifier 
 			);
-			TerminateThread(server_thread, NULL);
+
+			//TerminateThread(server_thread, NULL);
 			ResumeThread(client_thread);
 		}
 	}
