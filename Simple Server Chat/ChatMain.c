@@ -99,7 +99,7 @@ void init_user(User* local) // Function initializes a given user to default valu
 															// or if invited- the 'accept' function will return a
 															// new client socket.
 
-	local->amount_active = 0;									// Here we initialize the size of the array of client sockets to 0 since its null
+	local->amount_active = 0;								// Here we initialize the size of the array of client sockets to 0 since its null
 															// thus contains no items.
 
 	local->active_addresses = NULL;							// Here we initialize the list of addresses that the
@@ -137,7 +137,7 @@ void init_user(User* local) // Function initializes a given user to default valu
 	int bind_server = bind(local->server_socket, (struct sockaddr*)&local->server_addr, sizeof(local->server_addr));
 	
 	// Bind error check:
-	if (bind_server != 0)
+	if (bind_server == SOCKET_ERROR)
 	{
 		printf("Bind of user's server has failed.\n");
 		print_bind_error(bind_server);
@@ -145,17 +145,19 @@ void init_user(User* local) // Function initializes a given user to default valu
 		exit(BIND_FAILED);
 	}
 	printf("Server binded\n");
+
 	// Make server socket listen for connections:
-	if (listen(local->server_socket, 5) != 0)
+	/*if (listen(local->server_socket, 5) != 0)
 	{
 		print_socket_error();
 		closesocket(local->server_socket);
 		exit(SOCK_FAILED);
-	}
+	}*/
+	listen(local->server_socket, 3);
 	printf("Socket listening\n");
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
-	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), local->server_addr.sin_port);
+	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), ntohs(local->server_addr.sin_port));
 	printf("To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
@@ -198,14 +200,14 @@ void decrypt(char* s)
 	// TODO: create an decryption algorithm.
 }
 
-void init_sockaddr_in(sockaddr_in* paddress, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
+void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
 {
 
-	paddress->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
+	address->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
 										// The type of our address, AKA the address' family is AF_INET, 
 										// which represents the IPV4 Internet connection. 
 
-	paddress->sin_port = htons(port);	// We set the port which we want the server to send data from. 
+	address->sin_port = htons(port);	// We set the port which we want the server to send data from. 
 										// The function 'htons()': casts a short from Host to Network Byte Order-
 										// Host-TO-Network-Short .The usual way that we read a number in binary,
 										// which is that the first (most left) digit represents the biggest/most
@@ -215,14 +217,7 @@ void init_sockaddr_in(sockaddr_in* paddress, char* ip, unsigned short port) // T
 										// standard way to set a port value.
 
 	// We need to set the server's IP address in 'server_addr'. 
-	paddress->sin_addr.s_addr = inet_addr(ip);
-	// The '.sin_addr', AKA the server's 'actual' address, could be different
-	// types of IPV4 addresses- you can see the different types by clicking
-	// on it; but this is irrelevant for now. For a typical connection,
-	// we'll set it as '.s_addr'. We set the value of the address to the ip
-	// by inputting the ip as a string into the function 'inet_addr', which
-	// makes the string an unsigned long in the 'Network Byte Order', so
-	// there's no need to use the 'htons' function.
+	address->sin_addr.s_addr = inet_addr(ip);
 }
 
 int ipv4_validation(char* ip) // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
@@ -1097,9 +1092,9 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
 
 	// Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
-	local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET));
+	
 	// Memory allocation check:
-	if (local->active_sockets == NULL)
+	if (local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET)) == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
 		exit(MEMORY_ALLOC_FAILED);
@@ -1109,9 +1104,8 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	local->active_sockets[local->amount_active - 1] = s;
 
 	// Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
-	local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in));
 	// Memory allocation check:
-	if (local->active_addresses == NULL)
+	if (local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in)) == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
 		exit(MEMORY_ALLOC_FAILED);
@@ -1124,12 +1118,10 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	printf("Connection with %s:%hu was created!\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
 }
 
-void connect_to_remote_user(User* local, sockaddr_in remote_user)
+void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The function recieves the local user and an address of a remote user. The function creates a connection
+																	// to the remote user and inserts the new socket into 'local->active_sockets', the address of the remote user
+																	// into 'local->active_addresses.
 { 
-	// The function recieves the local user and an address of a remote user. The function creates a connection
-	// to the remote user and inserts the new socket into 'local->active_sockets', the address of the remote user
-	// into 'local->active_addresses.
-
 	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0); // A temporary socket to create the initial connection with the remote user.
 	//	Socket error check:
 	if (temp == INVALID_SOCKET)
@@ -1218,60 +1210,48 @@ int main(int argc, char* argv[])
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
-	//DWORD client_thread_id = NULL;
-	//HANDLE client_thread = CreateThread(
-	//	NULL,                   // Default security attributes
-	//	0,                      // Use default stack size  
-	//	local_client,			// Thread function name
-	//	&local,					// Argument to thread function 
-	//	0,						// Create thread and run it instantly
-	//	&client_thread_id		// Returns the thread identifier 
-	//);
+	DWORD client_thread_id = NULL;
+	HANDLE client_thread = CreateThread(
+		NULL,                   // Default security attributes
+		0,                      // Use default stack size  
+		local_client,			// Thread function name
+		&local,					// Argument to thread function 
+		0,						// Create thread and run it instantly
+		&client_thread_id		// Returns the thread identifier 
+	);
 
 	SOCKET temp_socket; // To recieve the socket returned by the 'accept' function.
 	struct sockaddr_in remote_client; // Address of the remote client.
 	int size_of_sockaddr = sizeof(struct sockaddr_in); // The size of the address, for the use of the 'accept' function.
 	
-	int val;
-	socklen_t len = sizeof(val);
-	if (getsockopt(local.server_socket, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == -1)
-		printf("server socket %d is not a socket\n", local.server_socket);
-	else if (val)
-		printf("server socket %d is a listening socket\n", local.server_socket);
-	else
-		printf("server socket %d is a non-listening socket\n", local.server_socket);
-
-	temp_socket = accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr);
-	
-	if (temp_socket == INVALID_SOCKET)
+	while (TRUE) // Main loop:
 	{
-		printf("Connection failed.\n");
-		return 1;
+		// If the server socket accepts a connection:
+		if (temp_socket = accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr) == SOCKET_ERROR)
+		{
+			exit(SOCK_FAILED);
+		}
+
+
+		else
+		{
+			printf("Someone connected to local server\n");
+			SuspendThread(client_thread);
+			
+			// Create server thread:
+			DWORD server_thread_id = NULL;
+			HANDLE server_thread = CreateThread(
+				NULL,										// Default security attributes
+				0,											// Use default stack size  
+				local_server,								// Thread function name
+				&local, temp_socket, &remote_client,		// Argument to thread function 
+				0,											// Create server thread and run it immediately
+				&server_thread_id							// Returns the thread identifier 
+			);
+			TerminateThread(server_thread, NULL);
+			ResumeThread(client_thread);
+		}
 	}
-
-	printf("Connection Succeeded.\n");
-	//while (TRUE) // Main loop:
-	//{
-	//	// If the server socket accepts a connection:
-	//	if (accept(local.server_socket, (struct sockaddr*)&remote_client, &size_of_sockaddr) != INVALID_SOCKET)
-	//	{
-	//		SuspendThread(client_thread);
-	//		
-	//		// Create server thread:
-	//		DWORD server_thread_id = NULL;
-	//		HANDLE server_thread = CreateThread(
-	//			NULL,										// Default security attributes
-	//			0,											// Use default stack size  
-	//			local_server,								// Thread function name
-	//			&local, temp_socket, &remote_client,		// Argument to thread function 
-	//			0,											// Create server thread and run it immediately
-	//			&server_thread_id							// Returns the thread identifier 
-	//		);
-	//		TerminateThread(server_thread, NULL);
-	//		ResumeThread(client_thread);
-	//	}
-	//}
-
 
 	return 0;
 }
