@@ -227,10 +227,7 @@ void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port) // Th
 int ipv4_validation(char* ip) // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
 {
 	if (inet_addr(ip) == INADDR_NONE)
-	{
-		printf("Error! Given IP address is invalid! \n");
 		return FALSE;
-	}
 
 	return TRUE;
 }
@@ -243,7 +240,7 @@ int port_validation(unsigned short port) // Function checks if given port is val
 	return FALSE;
 }
 
-void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite
+void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite.
 {
 	sockaddr_in remote_user; // Remote server's address
 	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
@@ -1096,24 +1093,26 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This 
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
 
 	// Change the pointer of the 'client_sockets' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the values of the array to the new block of memory.
-	
+	SOCKET* p = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET));
 	// Memory allocation check:
-	if (local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET)) == NULL)
+	if (p == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
 		exit(MALLOC_FAILED);
 	}
-
+	local->active_sockets = p;
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
 	local->active_sockets[(local->amount_active) - 1] = s;
 
 	// Change the pointer of the 'active_addresses' array to a new pointer which points to a block of memory with the new size of the array. The 'realloc' function also copies the addresses of the array to the new block of memory.
+	sockaddr_in* temp = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in));
 	// Memory allocation check:
-	if (local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in)) == NULL)
+	if (temp == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
 		exit(MALLOC_FAILED);
 	}
+	local->active_addresses = temp;
 
 	// We add the address of the remote client we have just connected to, to the list of active addresses in 'local'.
 	local->active_addresses[(local->amount_active) - 1] = remote_user;
@@ -1151,7 +1150,6 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 void local_server(New_Connection* connection)
 {	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
-	printf("Inside function Connection with %s:%hu.\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 								// Server flag state will return to FALSE after the connection is either denied,
@@ -1165,7 +1163,7 @@ void local_server(New_Connection* connection)
 	// If user DOES NOT want to connect to remote client:
 	if (choice == FALSE) // If user chose to deny connection:
 	{
-		printf("Connection denied!\n");
+		printf("\nConnection denied!\n");
 		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
 		connection->local_user->server_flag = FALSE;
 	}
@@ -1174,7 +1172,7 @@ void local_server(New_Connection* connection)
 	if (choice == TRUE)
 	{
 		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
-		printf("Connection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+		printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 		// Advance to the introduction:
 		introduction(connection->local_user, FALSE);
@@ -1182,6 +1180,7 @@ void local_server(New_Connection* connection)
 		// Server flag state is returned to FALSE:
 		connection->local_user->server_flag = FALSE;
 	}
+
 }
 
 // Main function:
@@ -1243,8 +1242,11 @@ int main(int argc, char* argv[])
 				0,											// Create server thread and run it immediately
 				&server_thread_id							// Returns the thread identifier 
 			);
-			//TerminateThread(server_thread, NULL);
-			ResumeThread(client_thread);
+			if (server_thread) // If server thread has finished
+			{
+				CloseHandle(server_thread, NULL);
+				ResumeThread(client_thread);
+			}
 		}
 	}
 
