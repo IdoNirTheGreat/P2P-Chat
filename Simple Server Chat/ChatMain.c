@@ -7,7 +7,7 @@ enum error_codes { // Fill in this shit later.
 	BIND_FAILED,			// Bind failed.
 	CONNECTION_FAILED,		// Connection to remote user has failed.
 	WSA_FAILED, 			// WSA module initialize failed.
-	MEMORY_ALLOC_FAILED,	// Memory allocation has failed. 
+	MALLOC_FAILED,	// Memory allocation has failed. 
 	HOST_NAME_ERROR,		// Host name could not be retrieved.
 	HOST_INFO_ERROR,		// Host information could not be retrieved.
 	IPIFY_ERROR,			// Connection to ipify API has failed.
@@ -53,6 +53,14 @@ typedef struct User
 
 typedef struct sockaddr_in sockaddr_in;
 
+typedef struct New_connection
+{
+	User* local_user;			// To pass local user.
+	SOCKET s;					// Socket of the new connection.
+	sockaddr_in remote_user;	// Address of remote user who connected.
+}New_Connection;
+
+
 // Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
 void init_user(User* self);
 void print_bind_error(int bind_code);
@@ -83,29 +91,19 @@ void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADA
 
 void init_user(User* local) // Function initializes a given user to default values.
 {
-	// Allocate memory for all variables in User:
-	*(local->username) = (char*) calloc(USERNAME_MAX_LENGTH,sizeof(char)); 
-	*(local->active_sockets) = (SOCKET*) calloc(1, sizeof(SOCKET));
-	local->amount_active = (int*) calloc(1,sizeof(int)); 
-	*(local->active_addresses) = (sockaddr_in*) calloc(1,sizeof(sockaddr_in*));
-	*(local->server_addr) = (sockaddr_in*)calloc(1, sizeof(sockaddr_in*)); ;
-	local->server_socket = (SOCKET*) calloc(1, sizeof(SOCKET));
-	int server_flag;
-	char* key
-
 	// Initialize the username to be the user's input.
 	char* username = get_username();
 	strcpy(local->username, username);
 	free(username);
 
 	// Initialize Encryption key.
-	local->key = KEY; // We copy the key given in the parameters field by reference.
+	local->key = KEY; 
 
 	local->amount_active = 0;								// Here we initialize the size of the array of client sockets to 0 since its null
 															// thus contains no items.
 
 	// Initialize client and server sockets.
-	local->active_sockets = (SOCKET*)calloc(local->amount_active, sizeof(SOCKET));						
+	local->active_sockets = (SOCKET*)calloc(1, sizeof(SOCKET));						
 															// Here we initialize the sockets array to null. 
 															// We'll later use those sockets to send and 
 															// recieve data to other users. We'll create
@@ -114,7 +112,7 @@ void init_user(User* local) // Function initializes a given user to default valu
 															// new client socket.
 
 
-	local->active_addresses = (sockaddr_in*)calloc(local->amount_active, sizeof(sockaddr_in));							
+	local->active_addresses = (sockaddr_in*)calloc(1, sizeof(sockaddr_in));							
 															// Here we initialize the list of addresses that the
 															// local user is connected to, to NULL - because when
 															// the user is initialized, it's not connected to anyone.
@@ -182,7 +180,7 @@ char* get_username() // Function recieves desired username from user and returns
 {
 	char *username = (char*)calloc(USERNAME_MAX_LENGTH, sizeof(char));
 	if (!username)
-		exit(MEMORY_ALLOC_FAILED);
+		exit(MALLOC_FAILED);
 
 	printf("Please enter a username that is 3-%d characters long and alphanumeric: ", USERNAME_MAX_LENGTH);
 	gets_s(username, USERNAME_MAX_LENGTH);
@@ -993,7 +991,7 @@ sockaddr_in* recieve_active_address_list(User* local)
 	if (addresses == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
-		exit(MEMORY_ALLOC_FAILED);
+		exit(MALLOC_FAILED);
 	}
 
 	// Copying the IPs and ports into 'sockaddr_in's:
@@ -1103,7 +1101,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This 
 	if (local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active) * sizeof(SOCKET)) == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
-		exit(MEMORY_ALLOC_FAILED);
+		exit(MALLOC_FAILED);
 	}
 
 	// We insert the new socket created by the 'accept' function to the last place of the 'client_sockets' array.
@@ -1114,7 +1112,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This 
 	if (local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active) * sizeof(sockaddr_in)) == NULL)
 	{
 		printf("Error! Memory could not be reallocated!\n");
-		exit(MEMORY_ALLOC_FAILED);
+		exit(MALLOC_FAILED);
 	}
 
 	// We add the address of the remote client we have just connected to, to the list of active addresses in 'local'.
@@ -1150,40 +1148,39 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 
 }
 
-void local_server(User* local, SOCKET temp_socket, sockaddr_in remote_client)
+void local_server(New_Connection* connection)
 {	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
+	printf("Inside function Connection with %s:%hu.\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
-	printf("Inside function Connection with %s:%hu.\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
-
-	local->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
+	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 								// Server flag state will return to FALSE after the connection is either denied,
 								// or after the introduction has ended after connection was granted.
 	
 	// We must accept the connection at the first place, and then if the user doesn't
 	// want to accept the connection we will close it.
 
-	int choice = connection_choice(inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
+	int choice = connection_choice(inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 	// If user DOES NOT want to connect to remote client:
 	if (choice == FALSE) // If user chose to deny connection:
 	{
 		printf("Connection denied!\n");
-		closesocket(temp_socket); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
-		local->server_flag = FALSE;
+		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
+		connection->local_user->server_flag = FALSE;
 	}
 
 	// If user DOES want to connect to remote client:
 	if (choice == TRUE)
 	{
-		insert_remote_user(local, temp_socket, remote_client);
-		printf("Connection with %s:%hu has been created successfully!\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
+		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
+		printf("Connection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 		// Advance to the introduction:
-		introduction(local, FALSE);
+		introduction(connection->local_user, FALSE);
 		
 		// Server flag state is returned to FALSE:
-		local->server_flag = FALSE;
+		connection->local_user->server_flag = FALSE;
 	}
 }
 
@@ -1199,9 +1196,9 @@ int main(int argc, char* argv[])
 	// Get user input to start the chat:
 	User* local = (User*)calloc(1, sizeof(User));
 	if (local == NULL)
-		exit(MEMORY_ALLOC_FAILED);
+		exit(MALLOC_FAILED);
 	init_user(local);
-
+	
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
@@ -1210,21 +1207,25 @@ int main(int argc, char* argv[])
 		NULL,                   // Default security attributes
 		0,                      // Use default stack size  
 		local_client,			// Thread function name
-		&local,					// Argument to thread function 
+		local,					// Argument to thread function 
 		0,						// Create thread and run it instantly
 		&client_thread_id		// Returns the thread identifier 
 	);
 
 	// We must 'malloc' the variables to pass them as parameters to other threads.
-	SOCKET *temp_socket = (SOCKET*)malloc(sizeof(SOCKET)); // To recieve the socket returned by the 'accept' function.
-	sockaddr_in *remote_client = (sockaddr_in*)malloc(sizeof(sockaddr_in));
-	remote_client->sin_family = AF_INET;
+	New_Connection* connection = (New_Connection*)calloc(1, sizeof(New_Connection));
+	if (connection == NULL)
+	{
+		exit(MALLOC_FAILED);
+	}
+	connection->local_user = local;
+			
 	int sockaddr_in_size = sizeof(sockaddr_in);
 
 	while (TRUE) // Main loop:
 	{
 		// If the server socket accepts a connection:
-		if (*temp_socket = accept(local->server_socket, (struct sockaddr*)remote_client, &sockaddr_in_size) == SOCKET_ERROR)
+		if (connection->s = accept(local->server_socket, (struct sockaddr*)&(connection->remote_user), &sockaddr_in_size) == SOCKET_ERROR)
 		{
 			exit(SOCK_FAILED);
 		}
@@ -1235,12 +1236,12 @@ int main(int argc, char* argv[])
 			// Create server thread:
 			DWORD server_thread_id = NULL;
 			HANDLE server_thread = CreateThread(
-				NULL,																					// Default security attributes
-				0,																						// Use default stack size  
-				local_server,																			// Thread function name
-				local, *temp_socket, remote_client,														// Arguments to thread function 
-				0,																						// Create server thread and run it immediately
-				&server_thread_id																		// Returns the thread identifier 
+				NULL,										// Default security attributes
+				0,											// Use default stack size  
+				local_server,								// Thread function name
+				connection,										// Arguments to thread function 
+				0,											// Create server thread and run it immediately
+				&server_thread_id							// Returns the thread identifier 
 			);
 			//TerminateThread(server_thread, NULL);
 			ResumeThread(client_thread);
