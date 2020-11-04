@@ -83,6 +83,16 @@ void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADA
 
 void init_user(User* local) // Function initializes a given user to default values.
 {
+	// Allocate memory for all variables in User:
+	*(local->username) = (char*) calloc(USERNAME_MAX_LENGTH,sizeof(char)); 
+	*(local->active_sockets) = (SOCKET*) calloc(1, sizeof(SOCKET));
+	local->amount_active = (int*) calloc(1,sizeof(int)); 
+	*(local->active_addresses) = (sockaddr_in*) calloc(1,sizeof(sockaddr_in*));
+	*(local->server_addr) = (sockaddr_in*)calloc(1, sizeof(sockaddr_in*)); ;
+	local->server_socket = (SOCKET*) calloc(1, sizeof(SOCKET));
+	int server_flag;
+	char* key
+
 	// Initialize the username to be the user's input.
 	char* username = get_username();
 	strcpy(local->username, username);
@@ -1140,21 +1150,11 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 
 }
 
-void local_server(User* local, SOCKET temp_socket)
+void local_server(User* local, SOCKET temp_socket, sockaddr_in remote_client)
 {	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
 
-	// We cannot pass the sockaddr_in struct to the thread, so we pass the ip and port in initialize the address inside this function:
-	sockaddr_in remote_client; 
-	int sockaddr_in_size = sizeof(sockaddr_in);
-	getpeername(temp_socket, (struct sockaddr*)&remote_client, &sockaddr_in_size);
-
-	char remote_ip[IP_ADDR_BUFF_SIZE] = "";
-	*remote_ip = inet_ntoa(remote_client.sin_addr);
-	unsigned short remote_port = ntohs(remote_client.sin_port);
-
-	printf("Connection with %s:%hu.\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
-	printf("Connection with %s:%hu.\n", remote_ip, remote_port);
+	printf("Inside function Connection with %s:%hu.\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
 
 	local->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 								// Server flag state will return to FALSE after the connection is either denied,
@@ -1163,7 +1163,7 @@ void local_server(User* local, SOCKET temp_socket)
 	// We must accept the connection at the first place, and then if the user doesn't
 	// want to accept the connection we will close it.
 
-	int choice = connection_choice(remote_ip, remote_port);
+	int choice = connection_choice(inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
 
 	// If user DOES NOT want to connect to remote client:
 	if (choice == FALSE) // If user chose to deny connection:
@@ -1177,7 +1177,7 @@ void local_server(User* local, SOCKET temp_socket)
 	if (choice == TRUE)
 	{
 		insert_remote_user(local, temp_socket, remote_client);
-		printf("Connection with %s has been created successfully!\n", remote_ip);
+		printf("Connection with %s:%hu has been created successfully!\n", inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port));
 
 		// Advance to the introduction:
 		introduction(local, FALSE);
@@ -1197,8 +1197,10 @@ int main(int argc, char* argv[])
 	init_WSA(&wsaData);
 
 	// Get user input to start the chat:
-	User local;
-	init_user(&local);
+	User* local = (User*)calloc(1, sizeof(User));
+	if (local == NULL)
+		exit(MEMORY_ALLOC_FAILED);
+	init_user(local);
 
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
@@ -1213,32 +1215,33 @@ int main(int argc, char* argv[])
 		&client_thread_id		// Returns the thread identifier 
 	);
 
-	SOCKET temp_socket; // To recieve the socket returned by the 'accept' function.
-	
+	// We must 'malloc' the variables to pass them as parameters to other threads.
+	SOCKET *temp_socket = (SOCKET*)malloc(sizeof(SOCKET)); // To recieve the socket returned by the 'accept' function.
+	sockaddr_in *remote_client = (sockaddr_in*)malloc(sizeof(sockaddr_in));
+	remote_client->sin_family = AF_INET;
+	int sockaddr_in_size = sizeof(sockaddr_in);
+
 	while (TRUE) // Main loop:
 	{
 		// If the server socket accepts a connection:
-		if (temp_socket = accept(local.server_socket, NULL, NULL) == SOCKET_ERROR)
+		if (*temp_socket = accept(local->server_socket, (struct sockaddr*)remote_client, &sockaddr_in_size) == SOCKET_ERROR)
 		{
 			exit(SOCK_FAILED);
 		}
 
-
 		else
 		{
 			SuspendThread(client_thread);
-			
 			// Create server thread:
 			DWORD server_thread_id = NULL;
 			HANDLE server_thread = CreateThread(
 				NULL,																					// Default security attributes
 				0,																						// Use default stack size  
 				local_server,																			// Thread function name
-				&local, temp_socket,// inet_ntoa(remote_client.sin_addr), ntohs(remote_client.sin_port),	// Arguments to thread function 
+				local, *temp_socket, remote_client,														// Arguments to thread function 
 				0,																						// Create server thread and run it immediately
 				&server_thread_id																		// Returns the thread identifier 
 			);
-
 			//TerminateThread(server_thread, NULL);
 			ResumeThread(client_thread);
 		}
