@@ -817,22 +817,22 @@ void local_client(User* local) // Main function of local client thread.
 
 void send_message(User* local, char* buff) // Function recieves local user, a buffer, and a pointer to the set , and distributes the buffer to each remote client.
 {	
-	char fbuff[MESSAGE_BUFF_MAX] = { NULL }; // Final buffer that will be distributed.
+	char fbuff[MESSAGE_BUFF_MAX] = { '\0' }; // Final buffer that will be distributed.
 
 	char time[TIME_SIZE];
 	get_time(time, sizeof(time));
 
 	// Final-buffer is made out of a time-stamp, username and original buffer:
-	snprintf(fbuff, "| %s | %s: %s", time, local->username, buff);
+	snprintf(fbuff, MESSAGE_BUFF_MAX, "| %s | %s: %s", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
-		send(local->active_sockets[i], fbuff, strlen(fbuff), 0);
+		send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);
 		
 }
 
 void recieve_message(SOCKET sender) // Function recieves the socket connected to user that sent a message, and prints the message.
 {	
-	char buff[MESSAGE_BUFF_MAX] = { NULL }; // The buffer used to recieve the incoming message
+	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The buffer used to recieve the incoming message
 	recv(sender, buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
 	//decrypt(buff); // For when the decryption function will be implemented.
 	printf("%s\n", buff);
@@ -896,7 +896,7 @@ char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must
 	////send(temp, "GET / HTTP / 1.0\r\n", (int)strlen("GET / HTTP/1.0\r\n"), 0); // The request is an empty string.
 
 	//// Recieve IP from Ipify server:
-	//char public_ip[IP_ADDR_BUFF_SIZE] = { NULL };
+	//char public_ip[IP_ADDR_BUFF_SIZE] = { '\0' };
 	//recv(temp, public_ip, IP_ADDR_BUFF_SIZE, 0);
 
 	//// Close the socket to leave no open connections:
@@ -914,13 +914,13 @@ void username_swap(User* local, int is_inviter)
 	if (is_inviter == TRUE) // If local user has invited the remote user:
 	{
 		// Send own username to new remote user connected:
-		char local_username[USERNAME_MAX_LENGTH] = { NULL };
-		*local_username = local->username;
+		char local_username[USERNAME_MAX_LENGTH] = { '\0' };
+		strcpy(local_username, local->username);
 		encrypt(local_username);
 		send(local->active_sockets[local->amount_active - 1], local_username, (int)strlen(local_username), 0); // Sending the username.
 
 		// Recieve username of new remote user connected:
-		char remote_username[USERNAME_MAX_LENGTH] = { NULL };
+		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
 		recv(local->active_sockets[local->amount_active - 1], remote_username, (int)strlen(remote_username), 0); // Recieve the username.
 		decrypt(remote_username);
 		printf("You are now connected with %s.\n", remote_username);
@@ -929,14 +929,14 @@ void username_swap(User* local, int is_inviter)
 	else // If the remote user has invited the local user:
 	{
 		// Recieve username of new remote user connected:
-		char remote_username[USERNAME_MAX_LENGTH] = { NULL };
+		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
 		recv(local->active_sockets[local->amount_active - 1], remote_username, (int)strlen(remote_username), 0); // Recieve the username.
 		decrypt(remote_username);
 		printf("You are now connected with %s.\n", remote_username);
 
 		// Send own username to new remote user connected:
-		char local_username[USERNAME_MAX_LENGTH] = { NULL };
-		*local_username = local->username;
+		char local_username[USERNAME_MAX_LENGTH] = { '\0' };
+		strcpy(local_username, local->username);
 		encrypt(local_username);
 		send(local->active_sockets[local->amount_active - 1], local_username, (int)strlen(local_username), 0); // Sending the username.
 	}
@@ -947,16 +947,16 @@ void send_active_address_list(User* local)
 {
 	// This function implements the sending of the active addresses list from local user to remote user.
 
-	char buff[MESSAGE_BUFF_MAX] = { NULL }; // The string that the list of addresses will be saved into.
+	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The string that the list of addresses will be saved into.
 	int index = 0; // An index to the last place that was written into 'buff'.
 
 	// Add to buffer the addresses that the local client is connected to.
 	for (int i = 0; i < (local->amount_active - 1); i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
 	{
 		// Add the IP address and port with a colon between them, and padding between each address.
-		snprintf(buff, "|%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port);
+		snprintf(buff, MESSAGE_BUFF_MAX, "|%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port);
 	}
-	snprintf(buff, "%c", '\0'); // Finish the buffer with an EOF.
+	snprintf(buff, MESSAGE_BUFF_MAX, "%c", '\0'); // Finish the buffer with an EOF.
 
 	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
 	encrypt(buff);
@@ -968,7 +968,7 @@ sockaddr_in* recieve_active_address_list(User* local)
 	// The local user recieves a list of addresses that the remote client is connected to. Then, it invites every address it wasn't connected to.
 	// The function returns a list of 'sockaddr_in' addresses which represent the addresses which the remote user is connected to.
 
-	char buff[MESSAGE_BUFF_MAX] = { NULL };
+	char buff[MESSAGE_BUFF_MAX] = { '\0' };
 	recv(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
 	decrypt(buff);
 
@@ -992,8 +992,8 @@ sockaddr_in* recieve_active_address_list(User* local)
 	}
 
 	// Copying the IPs and ports into 'sockaddr_in's:
-	char ip[IP_ADDR_BUFF_SIZE] = { NULL };
-	char port[5] = { NULL };
+	char ip[IP_ADDR_BUFF_SIZE] = { '\0' };
+	char port[5] = { '\0' };
 	int i = 0, j = 0, k = 0, l = 0; // Indices for 'buff', 'ip', 'port' and 'addresses'.
 
 	while (i < strlen(buff))
@@ -1009,8 +1009,8 @@ sockaddr_in* recieve_active_address_list(User* local)
 		}
 
 		init_sockaddr_in((addresses + l), ip, (unsigned short)atoi(port)); // Initialize the address.
-		*ip = ""; // Reset the temp IP
-		*port = ""; // Reset the temp port
+		strcpy(ip, ""); // Reset the temp IP
+		strcpy(port, ""); // Reset the temp port
 		j, k = 0; // Reset temp IP and port indices.
 		i++; // Continue to next address.
 
@@ -1022,12 +1022,14 @@ sockaddr_in* recieve_active_address_list(User* local)
 		{
 			if ( strcmp( inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->active_addresses[j].sin_addr) ) == 0 ) // If there's an address that both local and remote user are connected to, skip it.
 			{
-				continue;
+				++i; // Continue to next address at the list local user recieved.
 			}
 		}
 
 		connect_to_remote_user(local, addresses[i]);
 	}
+
+	return addresses;
 }
 
 void introduction(User* local, int is_inviter) 
@@ -1048,13 +1050,13 @@ void introduction(User* local, int is_inviter)
 		// Step 3: The remote user connects to all addresses it wasn't connected to. Nothing actually happens in the local side.
 
 		// Step 4+5: The local user recieves the list of addresses that the remote user is connected to, and connects to them.
-		recieve_active_address_list(local, is_inviter);
+		recieve_active_address_list(local);
 	}
 
 	else // If the remote user has invited the local user:
 	{
 		// Step 2+3: The local user recieves the list of addresses that the remote user is connected to, and connects to them.
-		recieve_active_address_list(local, is_inviter);
+		recieve_active_address_list(local);
 
 		// Step 4: Send the active address list to the remote user.
 		send_active_address_list(local);
@@ -1068,7 +1070,7 @@ void introduction(User* local, int is_inviter)
 int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
 {
 	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n):", ip, port);
-	char* choice[2];
+	char choice[2] = "";
 	gets_s(choice, 2); 
 
 	if (!stricmp(choice, "y")) // If user accepts connection:
@@ -1137,14 +1139,41 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 	else if (connect(temp, (struct sockaddr*)&remote_user, sizeof(remote_user)) < 0)
 	{
 		printf("Connection with %s:%hu has failed.\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
+		return;
 	}
 
-	else
+	// Recieve remote server's answer and send back acknowledgement:
+	char answer[MESSAGE_BUFF_MAX] = { '\0' };
+	recv(temp, answer, sizeof(answer), 0);
+	decrypt(answer);
+	printf("%s recieved\n", answer);
+
+	char ack[MESSAGE_BUFF_MAX] = "recieved";
+	encrypt(ack);
+	send(temp, ack, sizeof(ack), 0);
+	printf("%s sent\n", ack);
+
+	// If connection was denied:
+	if (strcmp(answer, "denied") == 0)
+	{
+		printf("Connection was denied by remote user.\n");
+		return;
+	}
+
+	// If connection was accepted:
+	else if (strcmp(answer, "accepted") == 0)
 	{
 		// Insert the new socket and address of the connection to the remote user into local.
 		insert_remote_user(local, temp, remote_user);
+		return;
 	}
 
+	// If messages were corrupted or other error occurred:
+	else
+	{
+		printf("Connection failed! Acknowledgement could not be completed.\n");
+		return;
+	}
 }
 
 void local_server(New_Connection* connection)
@@ -1152,8 +1181,8 @@ void local_server(New_Connection* connection)
 	// The function will be called by a new thread created when there's an incoming connection.
 
 	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
-								// Server flag state will return to FALSE after the connection is either denied,
-								// or after the introduction has ended after connection was granted.
+												// Server flag state will return to FALSE after the connection is either denied,
+												// or after the introduction has ended after connection was granted.
 	
 	// We must accept the connection at the first place, and then if the user doesn't
 	// want to accept the connection we will close it.
@@ -1164,14 +1193,48 @@ void local_server(New_Connection* connection)
 	if (choice == FALSE) // If user chose to deny connection:
 	{
 		printf("\nConnection denied!\n");
+		
+		// Send denial:
+		char deny[MESSAGE_BUFF_MAX] = "denied";
+		encrypt(deny);
+		send(connection->s, deny, sizeof(deny), 0);
+		printf("%s sent\n", deny);
+
+		// Recieve acknowledgment:
+		char ack[MESSAGE_BUFF_MAX] = { '\0' };
+		recv(connection->s, ack, sizeof(ack), 0);
+		decrypt(ack);
+		printf("%s recieved\n", ack);
+		if (strcmp(ack, "recieved") != 0)
+		{
+			printf("Acknowledgement failed!\n");
+		}
 		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
 		connection->local_user->server_flag = FALSE;
 	}
 
 	// If user DOES want to connect to remote client:
-	if (choice == TRUE)
+	else if (choice == TRUE)
 	{
+		// Send acception:
 		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
+		char accept[MESSAGE_BUFF_MAX] = "accepted";
+		encrypt(accept);
+		send(connection->s, accept, sizeof(accept), 0);
+		printf("%s sent\n", accept);
+
+		// Recieve acknowledgent:
+		char ack[MESSAGE_BUFF_MAX] = { '\0' };
+		recv(connection->s, ack, sizeof(ack), 0);
+		decrypt(ack);
+		printf("%s recieved\n", ack);
+
+		if (strcmp(ack, "recieved") != 0)
+		{
+			printf("Connection failed!\n");
+			return;
+		}
+		
 		printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 		// Advance to the introduction:
@@ -1192,7 +1255,7 @@ int main(int argc, char* argv[])
 	WSADATA wsaData;
 	init_WSA(&wsaData);
 
-	// Get user input to start the chat:
+	// Create local user:
 	User* local = (User*)calloc(1, sizeof(User));
 	if (local == NULL)
 		exit(MALLOC_FAILED);
@@ -1201,7 +1264,7 @@ int main(int argc, char* argv[])
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
-	DWORD client_thread_id = NULL;
+	DWORD client_thread_id = 0;
 	HANDLE client_thread = CreateThread(
 		NULL,                   // Default security attributes
 		0,                      // Use default stack size  
@@ -1238,13 +1301,13 @@ int main(int argc, char* argv[])
 				NULL,										// Default security attributes
 				0,											// Use default stack size  
 				local_server,								// Thread function name
-				connection,										// Arguments to thread function 
+				connection,									// Arguments to thread function 
 				0,											// Create server thread and run it immediately
 				&server_thread_id							// Returns the thread identifier 
 			);
 			if (server_thread) // If server thread has finished
 			{
-				CloseHandle(server_thread, NULL);
+				CloseHandle(server_thread);
 				ResumeThread(client_thread);
 			}
 		}
