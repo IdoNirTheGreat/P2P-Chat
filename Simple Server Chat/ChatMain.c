@@ -7,12 +7,14 @@ enum error_codes { // Fill in this shit later.
 	BIND_FAILED,			// Bind failed.
 	CONNECTION_FAILED,		// Connection to remote user has failed.
 	WSA_FAILED, 			// WSA module initialize failed.
-	MALLOC_FAILED,	// Memory allocation has failed. 
+	MALLOC_FAILED,			// Memory allocation has failed. 
 	HOST_NAME_ERROR,		// Host name could not be retrieved.
 	HOST_INFO_ERROR,		// Host information could not be retrieved.
 	IPIFY_ERROR,			// Connection to ipify API has failed.
 	LOCAL_SERVER_FAILED,	// Local server has failed.
 	SEND_FAILED,			// 'Send' function has failed.
+	THREAD_FAILED,			// Thread creation has failed.
+	UNKNOWN_ERROR,			// An unknown error has occurred.
 };
 
 #include <stdio.h>
@@ -61,7 +63,7 @@ typedef struct New_connection
 }New_Connection;
 
 
-// Forward declaration of 'complex' functions: (And by complex I mean sh*tty functions that use other functions and make me declare them as pitty so I won't get errors)
+// Forward declaration of 'complex' functions:
 void init_user(User* self);
 void print_bind_error(int bind_code);
 void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, unsigned short port);
@@ -786,7 +788,7 @@ void help_menu() // Prints out the help menu.
 
 void local_client(User* local) // Main function of local client thread.
 {
-	while (TRUE) // Runs constantly unless client thread is suspended.
+	while (local->server_flag == FALSE) // Runs constantly unless client thread is suspended or server is running.
 	{
 		// Print hour and minute of message
 		char time[TIME_SIZE];
@@ -1067,24 +1069,6 @@ void introduction(User* local, int is_inviter)
 
 }
 
-int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
-{
-	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n):", ip, port);
-	char choice[2] = "";
-	gets_s(choice, 2); 
-
-	if (!stricmp(choice, "y")) // If user accepts connection:
-		return TRUE;
-
-
-	if (!stricmp(choice, "n")) // If user denies connection:
-	{
-		return FALSE; 
-	}
-
-	return connection_choice(ip, port); // Make it recursive just for the hell of it? :)
-}
-
 void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This function recieves the 'local' user and a socket 's'.
 																		// The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
 																		// OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
@@ -1142,16 +1126,29 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 		return;
 	}
 
+	printf("Initial Connection was successfully made.\n");
+
 	// Recieve remote server's answer and send back acknowledgement:
 	char answer[MESSAGE_BUFF_MAX] = { '\0' };
-	recv(temp, answer, sizeof(answer), 0);
+	int error = recv(temp, answer, sizeof(answer), 0);
+	if (error == SOCKET_ERROR) // Error check to see if connection has died:
+	{
+		printf("Connection has died.\n");
+		return;
+	}
 	decrypt(answer);
 	printf("%s recieved\n", answer);
 
 	char ack[MESSAGE_BUFF_MAX] = "recieved";
 	encrypt(ack);
-	send(temp, ack, sizeof(ack), 0);
+	error = send(temp, ack, sizeof(ack), 0);
+	if (error == SOCKET_ERROR) // Error check to see if connection has died:
+	{
+		printf("Connection has died.\n");
+		return;
+	}
 	printf("%s sent\n", ack);
+
 
 	// If connection was denied:
 	if (strcmp(answer, "denied") == 0)
@@ -1171,9 +1168,45 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 	// If messages were corrupted or other error occurred:
 	else
 	{
-		printf("Connection failed! Acknowledgement could not be completed.\n");
+		printf("Connection failed! Handshake could not be completed.\n");
 		return;
 	}
+}
+
+// The function 'conncection_choice' doesn't work from some reason, so Iv'e moved it into local_server until I'll figure out what happened.
+int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
+{
+	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", ip, port);
+	char choice[MESSAGE_BUFF_MAX] = { '\0' };
+	scanf_s(choice);
+
+	if (!stricmp(choice, "y")) // If user accepts connection:
+		printf("Returned True!\n");
+	return TRUE;
+
+
+	if (!stricmp(choice, "n")) // If user denies connection:
+	{
+		printf("Returned False!\n");
+		return FALSE;
+	}
+
+	// Error check:
+	while (!stricmp(choice, "y") || stricmp(choice, "n"))
+	{
+		printf("Invalid input! Please enter y/n: ");
+		char choice[MESSAGE_BUFF_MAX] = { '\0' };
+		gets_s(choice, MESSAGE_BUFF_MAX);
+		if (!stricmp(choice, "y")) // If user accepts connection:
+			return TRUE;
+
+
+		if (!stricmp(choice, "n")) // If user denies connection:
+		{
+			return FALSE;
+		}
+	}
+
 }
 
 void local_server(New_Connection* connection)
@@ -1183,72 +1216,116 @@ void local_server(New_Connection* connection)
 	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 												// Server flag state will return to FALSE after the connection is either denied,
 												// or after the introduction has ended after connection was granted.
-	
-	// We must accept the connection at the first place, and then if the user doesn't
-	// want to accept the connection we will close it.
 
-	int choice = connection_choice(inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 
-	// If user DOES NOT want to connect to remote client:
-	if (choice == FALSE) // If user chose to deny connection:
+	char choice[MESSAGE_BUFF_MAX] = { '\0' };
+	do
 	{
-		printf("\nConnection denied!\n");
-		
-		// Send denial:
-		char deny[MESSAGE_BUFF_MAX] = "denied";
-		encrypt(deny);
-		send(connection->s, deny, sizeof(deny), 0);
-		printf("%s sent\n", deny);
+		printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+		char choice[MESSAGE_BUFF_MAX] = { '\0' };
+		scanf_s(choice);
+		printf("Choice was %s.\n", choice);
 
-		// Recieve acknowledgment:
-		char ack[MESSAGE_BUFF_MAX] = { '\0' };
-		recv(connection->s, ack, sizeof(ack), 0);
-		decrypt(ack);
-		printf("%s recieved\n", ack);
-		if (strcmp(ack, "recieved") != 0)
+		// If user wants to accept connection:
+		if (!stricmp(choice, "y"))
 		{
-			printf("Acknowledgement failed!\n");
+			// Send acception:
+			insert_remote_user(connection->local_user, connection->s, connection->remote_user);
+			char accept[MESSAGE_BUFF_MAX] = "accepted";
+			encrypt(accept);
+			int error = send(connection->s, accept, sizeof(accept), 0);
+			if (error == SOCKET_ERROR) // Error check to see if connection has died:
+			{
+				printf("Connection has died.\n");
+				return;
+			}
+			printf("%s sent\n", accept);
+
+			// Recieve acknowledgent:
+			char ack[MESSAGE_BUFF_MAX] = { '\0' };
+			error = recv(connection->s, ack, sizeof(ack), 0);
+			if (error == SOCKET_ERROR) // Error check to see if connection has died:
+			{
+				printf("Connection has died.\n");
+				return;
+			}
+			decrypt(ack);
+			printf("%s recieved\n", ack);
+
+			if (strcmp(ack, "recieved") != 0)
+			{
+				printf("Handshake failed!\n");
+				return;
+			}
+
+			printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+
+			// Advance to the introduction:
+			introduction(connection->local_user, FALSE);
+
+			// Server flag state is returned to FALSE:
+			connection->local_user->server_flag = FALSE;
 		}
-		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
-		connection->local_user->server_flag = FALSE;
-	}
 
-	// If user DOES want to connect to remote client:
-	else if (choice == TRUE)
-	{
-		// Send acception:
-		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
-		char accept[MESSAGE_BUFF_MAX] = "accepted";
-		encrypt(accept);
-		send(connection->s, accept, sizeof(accept), 0);
-		printf("%s sent\n", accept);
-
-		// Recieve acknowledgent:
-		char ack[MESSAGE_BUFF_MAX] = { '\0' };
-		recv(connection->s, ack, sizeof(ack), 0);
-		decrypt(ack);
-		printf("%s recieved\n", ack);
-
-		if (strcmp(ack, "recieved") != 0)
+		// If user deny connection:
+		if (!stricmp(choice, "n"))
 		{
-			printf("Connection failed!\n");
-			return;
+			printf("\nConnection denied!\n");
+
+			// Send denial:
+			char deny[MESSAGE_BUFF_MAX] = "denied";
+			encrypt(deny);
+			int error = send(connection->s, deny, sizeof(deny), 0);
+			if (error == SOCKET_ERROR) // Error check to see if connection has died:
+			{
+				printf("Connection has died.\n");
+				return;
+			}
+			printf("%s sent\n", deny);
+
+			// Recieve acknowledgment:
+			char ack[MESSAGE_BUFF_MAX] = { '\0' };
+			error = recv(connection->s, ack, sizeof(ack), 0);
+			if (error == SOCKET_ERROR) // Error check to see if connection has died:
+			{
+				printf("Connection has died.\n");
+				return;
+			}
+			decrypt(ack);
+			printf("%s recieved\n", ack);
+			if (strcmp(ack, "recieved") != 0)
+			{
+				printf("Acknowledgement failed!\n");
+			}
+			closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
+			connection->local_user->server_flag = FALSE;
 		}
-		
-		printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
-		// Advance to the introduction:
-		introduction(connection->local_user, FALSE);
-		
-		// Server flag state is returned to FALSE:
-		connection->local_user->server_flag = FALSE;
+		else
+		{
+			printf("Input error!\n");
+		}
 	}
-
+	// Error check:
+	while (!stricmp(choice, "y") || stricmp(choice, "n"));
 }
 
 // Main function:
 int main(int argc, char* argv[])
 {
+	/*char* header[6];
+	header[0] = " _____    _         _   _ _      _       _____  _____  _____   _____ _           _   ";
+	header[1] = "|_   _|  | |       | \ | (_)    ( )     | ___ \/ __  \| ___ \ /  __ \ |         | |  ";
+	header[2] = "  | |  __| | ___   |  \| |_ _ __|/ ___  | |_/ /`' / /'| |_/ / | /  \/ |__   __ _| |_ ";
+	header[3] = "  | | / _` |/ _ \  | . ` | | '__| / __| |  __/   / /  |  __/  | |   | '_ \ / _` | __|";
+	header[4] = " _| || (_| | (_) | | |\  | | |    \__ \ | |    ./ /___| |     | \__/\ | | | (_| | |_ ";
+	header[5] = "    \___/\__,_|\___/  \_| \_/_|_|    |___/ \_|    \_____/\_|      \____/_| |_|\__,_|\__|";
+                                                                                                                                                    
+                                                                                                                                                    
+
+	printf("%s\n%s\n%s\n%s\n%s\n%s\n", header[0], header[1], header[2], header[3], header[4], header[5]);*/
+	
 	printf("\nWelcome to Ido Nir's P2P Chat!\n\n");
 
 	// Initiate Windows socket module:
@@ -1266,13 +1343,17 @@ int main(int argc, char* argv[])
 
 	DWORD client_thread_id = 0;
 	HANDLE client_thread = CreateThread(
-		NULL,                   // Default security attributes
-		0,                      // Use default stack size  
-		local_client,			// Thread function name
-		local,					// Argument to thread function 
-		0,						// Create thread and run it instantly
-		&client_thread_id		// Returns the thread identifier 
+		NULL,									// Default security attributes
+		0,										// Use default stack size  
+		(LPTHREAD_START_ROUTINE) local_client,	// Thread function name
+		local,									// Argument to thread function 
+		0,										// Create thread and run it instantly
+		&client_thread_id						// Returns the thread identifier 
 	);
+
+	// Thread creation error check:
+	if (client_thread == NULL)
+		exit(THREAD_FAILED);
 
 	// We must 'malloc' the variables to pass them as parameters to other threads.
 	New_Connection* connection = (New_Connection*)calloc(1, sizeof(New_Connection));
@@ -1283,11 +1364,13 @@ int main(int argc, char* argv[])
 	connection->local_user = local;
 			
 	int sockaddr_in_size = sizeof(sockaddr_in);
+	int i = 0; // For debugging.
 
 	while (TRUE) // Main loop:
 	{
 		// If the server socket accepts a connection:
-		if (connection->s = accept(local->server_socket, (struct sockaddr*)&(connection->remote_user), &sockaddr_in_size) == SOCKET_ERROR)
+		connection->s = accept(local->server_socket, (struct sockaddr*)&(connection->remote_user), &sockaddr_in_size);
+		if (connection->s == SOCKET_ERROR)
 		{
 			exit(SOCK_FAILED);
 		}
@@ -1295,21 +1378,27 @@ int main(int argc, char* argv[])
 		else
 		{
 			SuspendThread(client_thread);
+			
 			// Create server thread:
-			DWORD server_thread_id = NULL;
+			DWORD server_thread_id = 0;
+			printf("\nServer Thread created for the no. %d time.\n", ++i);
 			HANDLE server_thread = CreateThread(
 				NULL,										// Default security attributes
 				0,											// Use default stack size  
-				local_server,								// Thread function name
+				(LPTHREAD_START_ROUTINE) local_server,		// Thread function name
 				connection,									// Arguments to thread function 
 				0,											// Create server thread and run it immediately
 				&server_thread_id							// Returns the thread identifier 
 			);
-			if (server_thread) // If server thread has finished
-			{
-				CloseHandle(server_thread);
-				ResumeThread(client_thread);
-			}
+
+			// Thread creation error check:
+			if (server_thread == NULL)
+				exit(THREAD_FAILED);
+
+			WaitForSingleObject(server_thread, INFINITE); // Wait for server thread to finish.
+			ExitThread(server_thread);
+			CloseHandle(server_thread);
+			ResumeThread(client_thread);
 		}
 	}
 
