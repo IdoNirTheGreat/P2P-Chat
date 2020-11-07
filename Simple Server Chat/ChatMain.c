@@ -71,7 +71,6 @@ void get_time(char* buf, size_t buf_size);
 char* get_username();
 char* get_private_ip();
 char* get_public_ip();
-int connection_choice(char* ip, unsigned short port);
 void connect_to_remote_user(User* local, sockaddr_in remote_client);
 void send_message(User* local, char* buff);
 void print_socket_error();
@@ -1173,42 +1172,6 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 	}
 }
 
-// The function 'conncection_choice' doesn't work from some reason, so Iv'e moved it into local_server until I'll figure out what happened.
-int connection_choice(char* ip, unsigned short port) // Function recieves the ip and port of the client trying to connect, asks user if accept or deny incoming connection. Returns TRUE if accept and FALSE if deny.
-{
-	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", ip, port);
-	char choice[MESSAGE_BUFF_MAX] = { '\0' };
-	scanf_s(choice);
-
-	if (!stricmp(choice, "y")) // If user accepts connection:
-		printf("Returned True!\n");
-	return TRUE;
-
-
-	if (!stricmp(choice, "n")) // If user denies connection:
-	{
-		printf("Returned False!\n");
-		return FALSE;
-	}
-
-	// Error check:
-	while (!stricmp(choice, "y") || stricmp(choice, "n"))
-	{
-		printf("Invalid input! Please enter y/n: ");
-		char choice[MESSAGE_BUFF_MAX] = { '\0' };
-		gets_s(choice, MESSAGE_BUFF_MAX);
-		if (!stricmp(choice, "y")) // If user accepts connection:
-			return TRUE;
-
-
-		if (!stricmp(choice, "n")) // If user denies connection:
-		{
-			return FALSE;
-		}
-	}
-
-}
-
 void local_server(New_Connection* connection)
 {	// This function will be called if there's a connection attempt to the local server.
 	// The function will be called by a new thread created when there's an incoming connection.
@@ -1219,96 +1182,92 @@ void local_server(New_Connection* connection)
 
 	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 
-	char choice[MESSAGE_BUFF_MAX] = { '\0' };
-	do
+	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+	char popup_message[MESSAGE_BUFF_MAX] = { '\0' };
+	sprintf(popup_message, "You have an incoming connection from %s: %hu, do you want to accept connection ? (y/n) : ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+	int choice = MessageBoxA(NULL, popup_message, "Incoming Invitation to Chat", MB_YESNO);
+
+	// If user wants to accept connection:
+	if (choice == IDYES)
 	{
-		printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
-		char choice[MESSAGE_BUFF_MAX] = { '\0' };
-		scanf_s(choice);
-		printf("Choice was %s.\n", choice);
-
-		// If user wants to accept connection:
-		if (!stricmp(choice, "y"))
+		// Send acception:
+		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
+		char accept[MESSAGE_BUFF_MAX] = "accepted";
+		encrypt(accept);
+		int error = send(connection->s, accept, sizeof(accept), 0);
+		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
-			// Send acception:
-			insert_remote_user(connection->local_user, connection->s, connection->remote_user);
-			char accept[MESSAGE_BUFF_MAX] = "accepted";
-			encrypt(accept);
-			int error = send(connection->s, accept, sizeof(accept), 0);
-			if (error == SOCKET_ERROR) // Error check to see if connection has died:
-			{
-				printf("Connection has died.\n");
-				return;
-			}
-			printf("%s sent\n", accept);
+			printf("Connection has died.\n");
+			return;
+		}
+		printf("%s sent\n", accept);
 
-			// Recieve acknowledgent:
-			char ack[MESSAGE_BUFF_MAX] = { '\0' };
-			error = recv(connection->s, ack, sizeof(ack), 0);
-			if (error == SOCKET_ERROR) // Error check to see if connection has died:
-			{
-				printf("Connection has died.\n");
-				return;
-			}
-			decrypt(ack);
-			printf("%s recieved\n", ack);
+		// Recieve acknowledgent:
+		char ack[MESSAGE_BUFF_MAX] = { '\0' };
+		error = recv(connection->s, ack, sizeof(ack), 0);
+		if (error == SOCKET_ERROR) // Error check to see if connection has died:
+		{
+			printf("Connection has died.\n");
+			return;
+		}
+		decrypt(ack);
+		printf("%s recieved\n", ack);
 
-			if (strcmp(ack, "recieved") != 0)
-			{
-				printf("Handshake failed!\n");
-				return;
-			}
-
-			printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
-
-			// Advance to the introduction:
-			introduction(connection->local_user, FALSE);
-
-			// Server flag state is returned to FALSE:
-			connection->local_user->server_flag = FALSE;
+		if (strcmp(ack, "recieved") != 0)
+		{
+			printf("Handshake failed!\n");
+			return;
 		}
 
-		// If user deny connection:
-		if (!stricmp(choice, "n"))
-		{
-			printf("\nConnection denied!\n");
+		printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
-			// Send denial:
-			char deny[MESSAGE_BUFF_MAX] = "denied";
-			encrypt(deny);
-			int error = send(connection->s, deny, sizeof(deny), 0);
-			if (error == SOCKET_ERROR) // Error check to see if connection has died:
-			{
-				printf("Connection has died.\n");
-				return;
-			}
-			printf("%s sent\n", deny);
+		// Advance to the introduction:
+		introduction(connection->local_user, FALSE);
 
-			// Recieve acknowledgment:
-			char ack[MESSAGE_BUFF_MAX] = { '\0' };
-			error = recv(connection->s, ack, sizeof(ack), 0);
-			if (error == SOCKET_ERROR) // Error check to see if connection has died:
-			{
-				printf("Connection has died.\n");
-				return;
-			}
-			decrypt(ack);
-			printf("%s recieved\n", ack);
-			if (strcmp(ack, "recieved") != 0)
-			{
-				printf("Acknowledgement failed!\n");
-			}
-			closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
-			connection->local_user->server_flag = FALSE;
-		}
-
-		else
-		{
-			printf("Input error!\n");
-		}
+		// Server flag state is returned to FALSE:
+		connection->local_user->server_flag = FALSE;
 	}
-	// Error check:
-	while (!stricmp(choice, "y") || stricmp(choice, "n"));
+
+	// If user deny connection:
+	else if (choice == IDNO)
+	{
+		printf("\nConnection denied!\n");
+
+		// Send denial:
+		char deny[MESSAGE_BUFF_MAX] = "denied";
+		encrypt(deny);
+		int error = send(connection->s, deny, sizeof(deny), 0);
+		if (error == SOCKET_ERROR) // Error check to see if connection has died:
+		{
+			printf("Connection has died.\n");
+			return;
+		}
+		printf("%s sent\n", deny);
+
+		// Recieve acknowledgment:
+		char ack[MESSAGE_BUFF_MAX] = { '\0' };
+		error = recv(connection->s, ack, sizeof(ack), 0);
+		if (error == SOCKET_ERROR) // Error check to see if connection has died:
+		{
+			printf("Connection has died.\n");
+			return;
+		}
+		decrypt(ack);
+		printf("%s recieved\n", ack);
+		if (strcmp(ack, "recieved") != 0)
+		{
+			printf("Acknowledgement failed!\n");
+		}
+		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
+		connection->local_user->server_flag = FALSE;
+	}
+
+	// For any other input other than yes/no:
+	else
+	{
+		printf("Input error! Connection denied.\n");
+	}
+
 }
 
 // Main function:
