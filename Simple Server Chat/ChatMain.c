@@ -1,7 +1,7 @@
 
 // This is Ido Nir's P2P shell chat.
 
-enum error_codes { // Fill in this shit later.
+enum error_codes {
 	EXIT_SUCCESS,			// Finished successfully.
 	SOCK_FAILED,			// Socket failed.
 	BIND_FAILED,			// Bind failed.
@@ -17,6 +17,7 @@ enum error_codes { // Fill in this shit later.
 	UNKNOWN_ERROR,			// An unknown error has occurred.
 };
 
+// Import Libraries:
 #include <stdio.h>
 #include <Winsock2.h>
 #include <ws2tcpip.h>
@@ -31,39 +32,41 @@ enum error_codes { // Fill in this shit later.
 #define KEY NULL
 #define IPIFY_URL "api.ipify.org"
 
-#pragma comment(lib,"ws2_32.lib") // Winsock library
-#pragma warning(disable:4996) // In order to use inet_addr() in Visual Studio, we must disable this warning.
+// Ignore Warnings:
+#pragma comment(lib,"ws2_32.lib")	// Winsock library
+#pragma warning(disable:4996)		// In order to use inet_addr() in Visual Studio, we must disable this warning.
 
 // All structures:
-typedef struct User
+typedef struct
 {
+	char username[USERNAME_MAX_LENGTH];		// User will input a username that will be shows in-chat.
 	
-	char username[USERNAME_MAX_LENGTH]; // User will input a username that will be shows in-chat.
-
-	SOCKET* active_sockets; // Array of sockets used for sending and recieving data to multiple peers.
-	int amount_active; // The number of clients currently connected to local user.
-	struct sockaddr_in* active_addresses; // A pointer to the list of addresses that the local user is connected to.
+	SOCKET* active_sockets;					// Array of sockets used for sending and recieving data to multiple peers.
 	
+	int amount_active;						// The number of clients currently connected to local user.
 	
-	struct sockaddr_in server_addr; // The local user's server's address, which includes the address'
-									// family (AF_INET in this case), IP address, and port number.
-	SOCKET server_socket; // Is used only for accepting connections. Is used only to create one connection at a time.
-	int server_flag; // To determine if server accepted a connection, so the client thread could be paused until the server is done managing the connection attempt.
-
-	char* key; // Key for future encryption feature.
+	struct sockaddr_in* active_addresses;	// A pointer to the list of addresses that the local user is connected to.
+	
+	struct sockaddr_in server_addr;			// The local user's server's address, which includes the address'
+											// family (AF_INET in this case), IP address, and port number.
+	
+	SOCKET server_socket;					// Is used only for accepting connections. Is used only to create one connection at a time.
+	
+	int server_flag;						// To determine if server accepted a connection, so the client thread could be paused until the server is done managing the connection attempt.
+	
+	char* key;								// Key for future encryption feature.
 }User;
 
 typedef struct sockaddr_in sockaddr_in;
 
-typedef struct New_connection
+typedef struct
 {
 	User* local_user;			// To pass local user.
 	SOCKET s;					// Socket of the new connection.
 	sockaddr_in remote_user;	// Address of remote user who connected.
 }New_Connection;
 
-
-// Forward declaration of 'complex' functions:
+// Forward declaration of functions:
 void init_user(User* self);
 void print_bind_error(int bind_code);
 void init_sockaddr_in(struct sockaddr_in* sa_in, char* address, unsigned short port);
@@ -78,19 +81,22 @@ void encrypt(char* s);
 void decrypt(char* s);
 
 // All functions:
-void init_WSA(WSADATA* wsaData) // Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
+
+// Function that recieves a pointer to the WSADATA struct and initialises it. Exits on 4 if failed.
+void init_WSA(WSADATA* wsaData) 
 {
 	// Initialize Windows Socket module
 	printf("Initialising Windows Socket module: \n");
 	if (WSAStartup(MAKEWORD(1, 1), wsaData) != 0)
 	{
 		printf("WSA Startup failed.\n");
-		exit(4);
+		exit(WSA_FAILED);
 	}
 	printf("WSA Initialised.\n\n");
 }
 
-void init_user(User* local) // Function initializes a given user to default values.
+// Function initializes a given user to default values.
+void init_user(User* local) 
 {
 	// Initialize the username to be the user's input.
 	char* username = get_username();
@@ -166,7 +172,8 @@ void init_user(User* local) // Function initializes a given user to default valu
 	printf("To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
-int is_alnum_string(char* string) // Function checks if given string is alphanumeric.
+// Function checks if given string is alphanumeric.
+int is_alnum_string(char* string) 
 {
 	while (*string) {
 		if (!(('a' <= *string && *string <= 'z') || ('A' <= *string && *string <= 'Z') || ('0' <= *string && *string <= '9')))
@@ -177,7 +184,8 @@ int is_alnum_string(char* string) // Function checks if given string is alphanum
 	return TRUE;
 }
 
-char* get_username() // Function recieves desired username from user and returns it.
+// Function recieves desired username from user and returns it.
+char* get_username() 
 {
 	char *username = (char*)calloc(USERNAME_MAX_LENGTH, sizeof(char));
 	if (!username)
@@ -195,17 +203,20 @@ char* get_username() // Function recieves desired username from user and returns
 	return username;
 }
 
+// Function encrypts given string s.
 void encrypt(char* s)
 {
 	// TODO: create an encryption algorithm.
 }
 
+// Function decrypts given string s.
 void decrypt(char* s)
 {
 	// TODO: create an decryption algorithm.
 }
 
-void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port) // This function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
+// Function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
+void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port)
 {
 
 	address->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
@@ -225,7 +236,8 @@ void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port) // Th
 	address->sin_addr.s_addr = inet_addr(ip);
 }
 
-int ipv4_validation(char* ip) // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
+// Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
+int ipv4_validation(char* ip) 
 {
 	if (inet_addr(ip) == INADDR_NONE)
 		return FALSE;
@@ -233,7 +245,8 @@ int ipv4_validation(char* ip) // Function checks if the given ip address valid o
 	return TRUE;
 }
 
-int port_validation(unsigned short port) // Function checks if given port is valid. If valid return TRUE, else return FALSE.
+// Function checks if given port is valid. If valid return TRUE, else return FALSE.
+int port_validation(unsigned short port) 
 {
 	if (port > 0 && port < 65536)
 		return TRUE;
@@ -241,7 +254,8 @@ int port_validation(unsigned short port) // Function checks if given port is val
 	return FALSE;
 }
 
-void invite(User* local) // When this function is called it asks the user for an IP address which he wants to invite.
+// When this function is called it asks the user for an IP address which he wants to invite.
+void invite(User* local) 
 {
 	sockaddr_in remote_user; // Remote server's address
 	char remote_ip[IP_ADDR_BUFF_SIZE]; // Max Length of IPV4 address. This is the IP of the destination.
@@ -276,7 +290,8 @@ void invite(User* local) // When this function is called it asks the user for an
 
 }
 
-void print_bind_error(int error_code) // The function recieves the error code from the 'bind()' function and prints the relevant error message. 
+// The function recieves the error code from the 'bind()' function and prints the relevant error message. 
+void print_bind_error(int error_code) 
 {
 	printf("An error of a socket bind no. %d has occurred: ", error_code); // Print the error code so the user could know it.
 
@@ -366,7 +381,8 @@ void print_bind_error(int error_code) // The function recieves the error code fr
 	}
 }
 
-void print_socket_error() // Function prints out the socket error code meaning, returned from 'WSAGetLastError()'
+// Function prints out the socket error code meaning, returned from 'WSAGetLastError()'
+void print_socket_error() 
 { 
 
 	int error_code = WSAGetLastError();
@@ -758,7 +774,8 @@ void print_socket_error() // Function prints out the socket error code meaning, 
 
 }
 
-void terminate_all_connections(User* local) // This function terminates all connection of a user by closing sockets.
+// This function terminates all connection of a user by closing sockets.
+void terminate_all_connections(User* local) 
 {
 	closesocket(local->server_socket);
 	for (int i = 0; i < local->amount_active; i++)
@@ -766,7 +783,8 @@ void terminate_all_connections(User* local) // This function terminates all conn
 	WSACleanup();
 }
 
-void get_time(char* buff, size_t buff_size) // Function recieves an empty string buff and it's size, and inserts into buff the current hour and minute in format HH:MM.
+// Function recieves an empty string buff and it's size, and inserts into buff the current hour and minute in format HH:MM.
+void get_time(char* buff, size_t buff_size) 
 { 
 	SYSTEMTIME time;
 	
@@ -775,7 +793,8 @@ void get_time(char* buff, size_t buff_size) // Function recieves an empty string
 	sprintf_s(buff, buff_size, "%02d:%02d", time.wHour, time.wMinute);
 }
 
-void help_menu() // Prints out the help menu.
+// Prints out the help menu.
+void help_menu() 
 {
 	printf("Help Menu:\n");
 	printf("To send a message in the chat room, just type it!\n");
@@ -785,7 +804,8 @@ void help_menu() // Prints out the help menu.
 	printf("To exit the chat, type '/exit'.\n\n");
 }
 
-void local_client(User* local) // Main function of local client thread.
+// Main function of local client thread.
+void local_client(User* local) 
 {
 	while (local->server_flag == FALSE) // Runs constantly unless client thread is suspended or server is running.
 	{
@@ -816,7 +836,8 @@ void local_client(User* local) // Main function of local client thread.
 	}
 }
 
-void send_message(User* local, char* buff) // Function recieves local user, a buffer, and a pointer to the set , and distributes the buffer to each remote client.
+// Function recieves local user, a buffer, and a pointer to the set , and distributes the buffer to each remote client.
+void send_message(User* local, char* buff) 
 {	
 	char fbuff[MESSAGE_BUFF_MAX] = { '\0' }; // Final buffer that will be distributed.
 
@@ -831,7 +852,8 @@ void send_message(User* local, char* buff) // Function recieves local user, a bu
 		
 }
 
-void recieve_message(SOCKET sender) // Function recieves the socket connected to user that sent a message, and prints the message.
+// Function recieves the socket connected to user that sent a message, and prints the message.
+void recieve_message(SOCKET sender) 
 {	
 	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The buffer used to recieve the incoming message
 	recv(sender, buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
@@ -839,6 +861,7 @@ void recieve_message(SOCKET sender) // Function recieves the socket connected to
 	printf("%s\n", buff);
 }
 
+// Function returns private IPV4 address of local machine. If machine is connected to multiple networks, it returns the 1st address from the local hosts info address list.
 char* get_private_ip()
 {
 	// 'Local' is the host
@@ -870,8 +893,9 @@ char* get_private_ip()
 	return ip_str;
 }
 
-char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must be written so a machine inside
-						//	the network could connect to a machine outside of the network.
+// TODO: Not working yet, a solution for port mapping must be written so a machine inside
+//	the network could connect to a machine outside of the network.
+char* get_public_ip()	
 {
 	//// We'll use the Ipify API for this:
 	//
@@ -907,9 +931,9 @@ char* get_public_ip()	// TODO: Not working yet, a solution for port mapping must
 	return "0.0.0.0";
 }
 
+// Function implements the name swap of the introduction.
 void username_swap(User* local, int is_inviter)
 {
-	// This function implements the name swap of the introduction.
 	// The function is divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa. This is because the steps are different whether you're the inviter or the invited one
 	
 	if (is_inviter == TRUE) // If local user has invited the remote user:
@@ -944,10 +968,9 @@ void username_swap(User* local, int is_inviter)
 
 }
 
+// Function implements the sending of the active addresses list from local user to remote user.
 void send_active_address_list(User* local)
 {
-	// This function implements the sending of the active addresses list from local user to remote user.
-
 	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The string that the list of addresses will be saved into.
 	int index = 0; // An index to the last place that was written into 'buff'.
 
@@ -1033,9 +1056,9 @@ sockaddr_in* recieve_active_address_list(User* local)
 	return addresses;
 }
 
+// Function makes an introduction between the invited (local user) to the inviter (remote user).
 void introduction(User* local, int is_inviter) 
 {	
-	// This function makes an introduction between the invited (local user) to the inviter (remote user).
 	// * To make things more clear, the remote client we need to make the introduction with is the last in the active_addresses and active_sockets array.
 	// The functions that implement the steps of the introuction are divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa.
 	// This is because the steps are different whether you're the inviter or the invited one.
@@ -1068,11 +1091,12 @@ void introduction(User* local, int is_inviter)
 
 }
 
-void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This function recieves the 'local' user and a socket 's'.
-																		// The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
-																		// OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
-																		// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
-																		// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
+// Function recieves the 'local' user and a socket 's'.
+// The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
+// OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
+// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
+// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
+void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) 
 {	
 
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
@@ -1106,11 +1130,13 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user) // This 
 	printf("Connection with %s:%hu was created!\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
 }
 
-void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The function recieves the local user and an address of a remote user. The function creates a connection
-																	// to the remote user and inserts the new socket into 'local->active_sockets', the address of the remote user
-																	// into 'local->active_addresses.
+// Function recieves the local user and an address of a remote user. The function creates a connection
+// to the remote user and inserts the new socket into 'local->active_sockets', the address of the remote user
+// into 'local->active_addresses.
+void connect_to_remote_user(User* local, sockaddr_in remote_user)	
 { 
 	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0); // A temporary socket to create the initial connection with the remote user.
+	
 	//	Socket error check:
 	if (temp == INVALID_SOCKET)
 	{
@@ -1172,10 +1198,9 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)	// The functio
 	}
 }
 
+// Function will be called if there's a connection attempt to the local server, by a new thread ('server_thread').
 void local_server(New_Connection* connection)
-{	// This function will be called if there's a connection attempt to the local server.
-	// The function will be called by a new thread created when there's an incoming connection.
-
+{	
 	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 												// Server flag state will return to FALSE after the connection is either denied,
 												// or after the introduction has ended after connection was granted.
