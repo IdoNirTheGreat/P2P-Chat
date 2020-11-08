@@ -1063,6 +1063,8 @@ void introduction(User* local, int is_inviter)
 	// The functions that implement the steps of the introuction are divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa.
 	// This is because the steps are different whether you're the inviter or the invited one.
 
+	printf("\n* Introduction process has commenced: *\n");
+
 	// Step 1: Swap usernames with remote user.
 	username_swap(local, is_inviter);
 
@@ -1089,6 +1091,7 @@ void introduction(User* local, int is_inviter)
 
 	}
 
+	printf("\n* Introduction process has ended. *\n");
 }
 
 // Function recieves the 'local' user and a socket 's'.
@@ -1127,7 +1130,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 	local->active_addresses[(local->amount_active) - 1] = remote_user;
 
 	// Function finishes successfully.
-	printf("Connection with %s:%hu was created!\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
+	printf("The address of %s:%hu was added to the 'connected peers' list.\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
 }
 
 // Function recieves the local user and an address of a remote user. The function creates a connection
@@ -1135,6 +1138,7 @@ void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 // into 'local->active_addresses.
 void connect_to_remote_user(User* local, sockaddr_in remote_user)	
 { 
+	printf("\nInvitation process has commenced:\n");
 	SOCKET temp = socket(AF_INET, SOCK_STREAM, 0); // A temporary socket to create the initial connection with the remote user.
 	
 	//	Socket error check:
@@ -1151,8 +1155,6 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 		return;
 	}
 
-	printf("Initial Connection was successfully made.\n");
-
 	// Recieve remote server's answer and send back acknowledgement:
 	char answer[MESSAGE_BUFF_MAX] = { '\0' };
 	int error = recv(temp, answer, sizeof(answer), 0);
@@ -1162,7 +1164,6 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 		return;
 	}
 	decrypt(answer);
-	printf("%s recieved\n", answer);
 
 	char ack[MESSAGE_BUFF_MAX] = "recieved";
 	encrypt(ack);
@@ -1172,51 +1173,55 @@ void connect_to_remote_user(User* local, sockaddr_in remote_user)
 		printf("Connection has died.\n");
 		return;
 	}
-	printf("%s sent\n", ack);
-
 
 	// If connection was denied:
-	if (strcmp(answer, "denied") == 0)
+	else if (strcmp(answer, "denied") == 0)
 	{
-		printf("Connection was denied by remote user.\n");
-		return;
+		printf("Handshake completed. Connection was denied by remote user.\n");
+		closesocket(temp); // No need for the socket anymore.
 	}
 
 	// If connection was accepted:
 	else if (strcmp(answer, "accepted") == 0)
 	{
-		// Insert the new socket and address of the connection to the remote user into local.
-		insert_remote_user(local, temp, remote_user);
-		return;
+		printf("Handshake completed. Connection was accepted by remote user.\n");
+		
+		// Insert remote user to the 'active addresses' array and the socket to 'active sockets' array.
+		insert_remote_user(local, temp, remote_user); // Insert the new socket and address of the connection to the remote user into local.
+		printf("The address of %s:%hu was added to the 'connected peers' list.\n", inet_ntoa(remote_user.sin_addr), ntohs(remote_user.sin_port));
+		
+		// Advance to the introduction.
+		introduction(local, TRUE); 
 	}
 
 	// If messages were corrupted or other error occurred:
 	else
 	{
 		printf("Connection failed! Handshake could not be completed.\n");
-		return;
 	}
+
+	printf("\n* Invitation process has ended. *\n");
 }
 
 // Function will be called if there's a connection attempt to the local server, by a new thread ('server_thread').
 void local_server(New_Connection* connection)
 {	
+	printf("\n* Invitation process has commenced: *\n");
+
 	connection->local_user->server_flag = TRUE;	// Server is now handling a connection, so the server flag is set to TRUE.
 												// Server flag state will return to FALSE after the connection is either denied,
 												// or after the introduction has ended after connection was granted.
 
 	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 
-	printf("\nYou have an incoming connection from %s:%hu, do you want to accept connection? (y/n): ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 	char popup_message[MESSAGE_BUFF_MAX] = { '\0' };
-	sprintf(popup_message, "You have an incoming connection from %s: %hu, do you want to accept connection ? (y/n) : ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
-	int choice = MessageBoxA(NULL, popup_message, "Incoming Invitation to Chat", MB_YESNO);
+	sprintf(popup_message, "You have an incoming connection from %s:%hu, do you want to accept connection? ", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+	int choice = MessageBoxA(NULL, popup_message, "Ido Nir's P2P Chat", MB_YESNO);
 
 	// If user wants to accept connection:
 	if (choice == IDYES)
 	{
 		// Send acception:
-		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
 		char accept[MESSAGE_BUFF_MAX] = "accepted";
 		encrypt(accept);
 		int error = send(connection->s, accept, sizeof(accept), 0);
@@ -1225,7 +1230,6 @@ void local_server(New_Connection* connection)
 			printf("Connection has died.\n");
 			return;
 		}
-		printf("%s sent\n", accept);
 
 		// Recieve acknowledgent:
 		char ack[MESSAGE_BUFF_MAX] = { '\0' };
@@ -1236,7 +1240,6 @@ void local_server(New_Connection* connection)
 			return;
 		}
 		decrypt(ack);
-		printf("%s recieved\n", ack);
 
 		if (strcmp(ack, "recieved") != 0)
 		{
@@ -1244,7 +1247,11 @@ void local_server(New_Connection* connection)
 			return;
 		}
 
-		printf("\nConnection with %s:%hu has been created successfully!\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
+		printf("Handshake completed.\n");
+
+		// Insert remote user to the 'active addresses' array and the socket to 'active sockets' array.
+		insert_remote_user(connection->local_user, connection->s, connection->remote_user);
+		printf("The address of %s:%hu was added to the 'connected peers' list.\n", inet_ntoa(connection->remote_user.sin_addr), ntohs(connection->remote_user.sin_port));
 
 		// Advance to the introduction:
 		introduction(connection->local_user, FALSE);
@@ -1267,7 +1274,6 @@ void local_server(New_Connection* connection)
 			printf("Connection has died.\n");
 			return;
 		}
-		printf("%s sent\n", deny);
 
 		// Recieve acknowledgment:
 		char ack[MESSAGE_BUFF_MAX] = { '\0' };
@@ -1278,10 +1284,10 @@ void local_server(New_Connection* connection)
 			return;
 		}
 		decrypt(ack);
-		printf("%s recieved\n", ack);
+	
 		if (strcmp(ack, "recieved") != 0)
 		{
-			printf("Acknowledgement failed!\n");
+			printf("Handshake failed! Remote user's acknowledgment message was corrupt.\n");
 		}
 		closesocket(connection->s); // We don't need to use the new socket created by the local server's acceptance because the user doesn't want to communicate to the remote client.
 		connection->local_user->server_flag = FALSE;
@@ -1293,6 +1299,7 @@ void local_server(New_Connection* connection)
 		printf("Input error! Connection denied.\n");
 	}
 
+	printf("\n* Invitation process has ended. *\n");
 }
 
 // Main function:
