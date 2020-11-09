@@ -968,21 +968,18 @@ char* get_public_ip()
 	return "0.0.0.0";
 }
 
-// Function implements the name swap of the introduction.
+// Function implements the name swap at the introduction.
 void username_swap(User* local, int is_inviter)
 {
 	// The function is divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa. This is because the steps are different whether you're the inviter or the invited one
 	
 	if (is_inviter == TRUE) // If local user has invited the remote user:
 	{
-		printf("Socket to be sent on: %d\n", (int)local->active_sockets[(local->amount_active - 1)]); // For debugging only.
-
 		// Send own username to new remote user connected:
 		char local_username[USERNAME_MAX_LENGTH] = { '\0' };
 		strcpy(local_username, local->username);
-		printf("Current username is '%s'.\n", local_username);
 		encrypt(local_username);
-		int error = send(local->active_sockets[(local->amount_active - 1)], local_username, strlen(local_username), 0); // Sending the username.
+		int error = send(local->active_sockets[(local->amount_active - 1)], local_username, sizeof(local_username), 0); // Sending the username.
 
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
@@ -992,7 +989,7 @@ void username_swap(User* local, int is_inviter)
 
 		// Recieve username of new remote user connected:
 		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
-		error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, strlen(remote_username), 0); // Recieve the username.
+		error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, sizeof(remote_username), 0); // Recieve the username.
 		
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
@@ -1006,11 +1003,9 @@ void username_swap(User* local, int is_inviter)
 
 	else // If the remote user has invited the local user:
 	{
-		printf("Socket to be sent on: %d\n", (int)local->active_sockets[(local->amount_active - 1)]); // For debugging only.
-
 		// Recieve username of new remote user connected:
 		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
-		int error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, strlen(remote_username), 0); // Recieve the username.
+		int error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, sizeof(remote_username), 0); // Recieve the username.
 		
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
@@ -1024,9 +1019,8 @@ void username_swap(User* local, int is_inviter)
 		// Send own username to new remote user connected:
 		char local_username[USERNAME_MAX_LENGTH] = { '\0' };
 		strcpy(local_username, local->username);
-		printf("Current username is '%s'.\n", local_username);
 		encrypt(local_username);
-		error = send(local->active_sockets[(local->amount_active - 1)], local_username, strlen(local_username), 0); // Sending the username.
+		error = send(local->active_sockets[(local->amount_active - 1)], local_username, sizeof(local_username), 0); // Sending the username.
 
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
@@ -1053,7 +1047,7 @@ void send_active_address_list(User* local)
 
 	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
 	encrypt(buff);
-	send(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Sending the buffer.
+	send(local->active_sockets[local->amount_active - 1], buff, sizeof(buff), 0); // Sending the buffer.
 }
 
 // Function implements the recieving of the active address list from a remote user.
@@ -1064,7 +1058,7 @@ sockaddr_in* recieve_active_address_list(User* local)
 	// The function returns a list of 'sockaddr_in' addresses which represent the addresses which the remote user is connected to.
 
 	char buff[MESSAGE_BUFF_MAX] = { '\0' };
-	recv(local->active_sockets[local->amount_active - 1], buff, (int)strlen(buff), 0); // Recieve the buffer. 
+	recv(local->active_sockets[local->amount_active - 1], buff, sizeof(buff), 0); // Recieve the buffer. 
 	decrypt(buff);
 
 	printf("The list of addresses the remote client has sent is: %s\n", buff); // For debugging.
