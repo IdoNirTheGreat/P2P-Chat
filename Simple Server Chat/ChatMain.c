@@ -1038,16 +1038,17 @@ void send_active_address_list(User* local)
 	int index = 0; // An index to the last place that was written into 'buff'.
 
 	// Add to buffer the addresses that the local client is connected to.
-	for (int i = 0; i < (local->amount_active - 1); i++) // The last client in the active_addresses array is the remote client we have just connected to, so we don't need to connect to it again.
+	for (int i = 0; i < local->amount_active; i++)
 	{
-		// Add the IP address and port with a colon between them, and padding between each address.
-		snprintf(buff, MESSAGE_BUFF_MAX, "|%s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), local->active_addresses[i].sin_port);
+		// Add the IP address and port with a colon between them, and a space between each address.
+		snprintf(buff, MESSAGE_BUFF_MAX, " %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
+
 	}
 	snprintf(buff, MESSAGE_BUFF_MAX, "%c", '\0'); // Finish the buffer with an EOF.
 
-	printf("The list of addresses sent to remote user: %s\n", buff); // For debugging.
 	encrypt(buff);
 	send(local->active_sockets[local->amount_active - 1], buff, sizeof(buff), 0); // Sending the buffer.
+
 }
 
 // Function implements the recieving of the active address list from a remote user.
@@ -1066,9 +1067,9 @@ sockaddr_in* recieve_active_address_list(User* local)
 	sockaddr_in* addresses = NULL; // A pointer to the list of addresses that the remote client has sent.
 	int amount = 0; // The amount of addresses the remote client has sent.
 
-	// The amount of addresses is determined by the amount of "|" paddings.
+	// The amount of addresses is determined by the amount of " " paddings.
 	for (int i = 0; buff[i] != '\0'; i++)
-		if (buff[i] == '|')
+		if (buff[i] == ' ')
 			++amount;
 
 	// Allocate memory for the address list:
@@ -1080,24 +1081,27 @@ sockaddr_in* recieve_active_address_list(User* local)
 		exit(MALLOC_FAILED);
 	}
 
-	// Copying the IPs and ports into 'sockaddr_in's:
+	// Reading the buffer to copy the IPs and ports into 'sockaddr_in's:
 	char ip[IP_ADDR_BUFF_SIZE] = { '\0' };
 	char port[5] = { '\0' };
 	int i = 0, j = 0, k = 0, l = 0; // Indices for 'buff', 'ip', 'port' and 'addresses'.
 
 	while (i < strlen(buff))
 	{
+		if (i == 1) // The first character in the buffer should be a space.
+			++i;
+
 		while (buff[i] != ':') // If reading an IP address, copy every character into 'ip' until reached a colon.
 		{
 			ip[j++] = buff[i++];
 		}
 
-		while (buff[i] != '|' && buff[i] != '\0') // If reading a port, copy every character into 'port' until reached a padding.
+		while (buff[i] != ' ' && buff[i] != '\0') // If reading a port, copy every character into 'port' until reached a padding.
 		{
 			port[k++] = buff[i++];
 		}
-
-		init_sockaddr_in((addresses + l), ip, (unsigned short)atoi(port)); // Initialize the address.
+		printf("Current IP: %s || Current port: %s\n", ip, port); // For debugging.
+		init_sockaddr_in((addresses + (l++)), ip, (unsigned short)atoi(port)); // Initialize the address, input it into addresses[l], and increment l by 1.
 		strcpy(ip, ""); // Reset the temp IP
 		strcpy(port, ""); // Reset the temp port
 		j, k = 0; // Reset temp IP and port indices.
@@ -1105,11 +1109,18 @@ sockaddr_in* recieve_active_address_list(User* local)
 
 	}
 
+
+	// Invite the addresses from the recieved list:
 	for (i = 0; i < amount; i++)
 	{
 		for (j = 0; j < local->amount_active; j++)
 		{
 			if ( strcmp( inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->active_addresses[j].sin_addr) ) == 0 ) // If there's an address that both local and remote user are connected to, skip it.
+			{
+				++i; // Continue to next address at the list local user recieved.
+			}
+
+			if (strcmp(inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->server_addr.sin_addr)) == 0) // If the current address is the local user's address, skip it also.
 			{
 				++i; // Continue to next address at the list local user recieved.
 			}
