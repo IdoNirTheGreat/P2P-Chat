@@ -1453,39 +1453,67 @@ int main(int argc, char* argv[])
 			
 	int sockaddr_in_size = sizeof(sockaddr_in);
 
+	// Create fd_sets: 
+	fd_set read_set; // Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
+	fd_set write_set;	// Will contain all client sockets (only to send data to them).
+
 	while (TRUE) // Main loop:
 	{
-		// If the server socket accepts a connection:
-		connection->s = accept(local->server_socket, (struct sockaddr*)&(connection->remote_user), &sockaddr_in_size);
-		if (connection->s == SOCKET_ERROR)
-		{
-			exit(SOCK_FAILED);
-		}
+		// Reset the sets at the beginning of every iteration: 
+		FD_ZERO(&read_set);
+		FD_ZERO(&write_set);
 
-		else
+		// Insert existing sockets into the sets:
+		FD_SET(local->server_socket, &read_set); // The server socket will be inserted first into 'read_set'.
+		for (int i = 0; i < local->amount_active; i++) // Insert all other active sockets. 
 		{
-			SuspendThread(client_thread);
+			FD_SET(local->active_sockets[i], &read_set);
+			FD_SET(local->active_sockets[i], &write_set);
+		} 
+		
+		// Call and error check the 'select' method: 
+		if (select(0, &read_set, &write_set, NULL, NULL) == SOCKET_ERROR) 
+		{
+			print_socket_error();
+			exit(CONNECTION_FAILED); 
+		} 
+		
+		// Check for Incoming connections to local server: 
+		if (FD_ISSET(local->server_socket, &read_set)) 
+		{ 
+			// If the server socket accepts a connection: 
+			connection->s = accept(local->server_socket, (struct sockaddr*)&(connection->remote_user), &sockaddr_in_size);
+			if (connection->s == SOCKET_ERROR) 
+			{ 
+				exit(SOCK_FAILED);
+			} 
 			
-			// Create server thread:
-			DWORD server_thread_id = 0;
-			HANDLE server_thread = CreateThread(
-				NULL,										// Default security attributes
-				0,											// Use default stack size  
-				(LPTHREAD_START_ROUTINE) local_server,		// Thread function name
-				connection,									// Arguments to thread function 
-				0,											// Create server thread and run it immediately
-				&server_thread_id							// Returns the thread identifier 
-			);
+			else
+			{ 
+				// Call the local server: 
+				local_server(connection);
+				
+				// Reset 'connection': 
+				New_Connection* connection = (New_Connection*)calloc(1, sizeof(New_Connection));
+				if (connection == NULL) 
+				{ 
+					exit(MALLOC_FAILED);
+				} 
 
-			// Thread creation error check:
-			if (server_thread == NULL)
-				exit(THREAD_FAILED);
+				connection->local_user = local;
+			} 
+		} 
+		
+		// Check for incoming messages: 
+		for (int i = 0; i < local->amount_active; i++) 
+		{
+			if (FD_ISSET(local->active_sockets[i], &read_set)) // If socket is ready to be read from: 
+			{ 
+				recieve_message(local->active_sockets[i]);
+			} 
+		} 
+		
 
-			WaitForSingleObject(server_thread, INFINITE); // Wait for server thread to finish.
-			ExitThread(server_thread);
-			CloseHandle(server_thread);
-			ResumeThread(client_thread);
-		}
 	}
 
 	return 0;
