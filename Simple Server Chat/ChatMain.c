@@ -218,24 +218,25 @@ void decrypt(char* s)
 }
 
 // Function recieves a pointer to the 'sockaddr_in' instance, an IP address, and a port, and initialises the given address.
+// If given IP or port isn't valid, the IP that will be set to the address is "255.255.255.255".
 void init_sockaddr_in(sockaddr_in* address, char* ip, unsigned short port)
 {
+	address->sin_family = AF_INET;				// We want our connections to be over an IPV4 Internet connection. 
+												// The type of our address, AKA the address' family is AF_INET, 
+												// which represents the IPV4 Internet connection. 
 
-	address->sin_family = AF_INET;		// We want our server to connect over an IPV4 Internet connection. 
-										// The type of our address, AKA the address' family is AF_INET, 
-										// which represents the IPV4 Internet connection. 
-
-	address->sin_port = htons(port);	// We set the port which we want the server to send data from. 
-										// The function 'htons()': casts a short from Host to Network Byte Order-
-										// Host-TO-Network-Short .The usual way that we read a number in binary,
-										// which is that the first (most left) digit represents the biggest/most
-										// significant value. This way to read a binary number is called 
-										// 'Host Byte Order'/'Little-Endian Byte Order'. We use this function
-										// to ensure the port is in Network Byte Order because that is the 
-										// standard way to set a port value.
-
-	// We need to set the server's IP address in 'server_addr'. 
-	address->sin_addr.s_addr = inet_addr(ip);
+	address->sin_port = htons(port);			// We set the port which we want the server to send data from. 
+												// The function 'htons()': casts a short from Host to Network Byte Order-
+												// Host-TO-Network-Short .The usual way that we read a number in binary,
+												// which is that the first (most left) digit represents the biggest/most
+												// significant value. This way to read a binary number is called 
+												// 'Host Byte Order'/'Little-Endian Byte Order'. We use this function
+												// to ensure the port is in Network Byte Order because that is the 
+												// standard way to set a port value.
+ 
+	address->sin_addr.s_addr = inet_addr(ip);	// We set our IP address into a struct named 'sin_addr'. This struct is	
+												// made out of 4 fields, which are the 4 fields of an IPV4 address. 's_addr'
+												// is an array which is divided to 4 cells, one for each IPV4 field. 
 }
 
 // Function checks if the given ip address valid or not. Returns 1 for valid and 0 for invalid.
@@ -1034,20 +1035,18 @@ void username_swap(User* local, int is_inviter)
 // Function implements the sending of the active addresses list from local user to remote user.
 void send_active_address_list(User* local)
 {
-	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The string that the list of addresses will be saved into.
-	int index = 0; // An index to the last place that was written into 'buff'.
+	char buff[MESSAGE_BUFF_MAX]; // The string that the list of addresses will be saved into.
+	int len = 0; // Index of last written place in the buffer.
 
-	// Add to buffer the addresses that the local client is connected to.
 	for (int i = 0; i < local->amount_active; i++)
 	{
-		// Add the IP address and port with a colon between them, and a space between each address.
-		snprintf(buff, MESSAGE_BUFF_MAX, " %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
-
+		len += sprintf_s(buff, (MESSAGE_BUFF_MAX - len), " %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
 	}
-	snprintf(buff, MESSAGE_BUFF_MAX, "%c", '\0'); // Finish the buffer with an EOF.
 
 	encrypt(buff);
-	send(local->active_sockets[local->amount_active - 1], buff, sizeof(buff), 0); // Sending the buffer.
+
+	printf("Buffer to be sent: '%s'\n", buff);
+	send(local->active_sockets[(local->amount_active - 1)], buff, sizeof(buff), 0); // Sending the buffer.
 
 }
 
@@ -1059,10 +1058,8 @@ sockaddr_in* recieve_active_address_list(User* local)
 	// The function returns a list of 'sockaddr_in' addresses which represent the addresses which the remote user is connected to.
 
 	char buff[MESSAGE_BUFF_MAX] = { '\0' };
-	recv(local->active_sockets[local->amount_active - 1], buff, sizeof(buff), 0); // Recieve the buffer. 
+	recv(local->active_sockets[(local->amount_active - 1)], buff, sizeof(buff), 0); // Recieve the buffer. 
 	decrypt(buff);
-
-	printf("The list of addresses the remote client has sent is: %s\n", buff); // For debugging.
 
 	sockaddr_in* addresses = NULL; // A pointer to the list of addresses that the remote client has sent.
 	int amount = 0; // The amount of addresses the remote client has sent.
@@ -1088,7 +1085,7 @@ sockaddr_in* recieve_active_address_list(User* local)
 
 	while (i < strlen(buff))
 	{
-		if (i == 1) // The first character in the buffer should be a space.
+		if (buff[i] == ' ') // If reached a space, increment i by 1, and then start reading the ip.
 			++i;
 
 		while (buff[i] != ':') // If reading an IP address, copy every character into 'ip' until reached a colon.
@@ -1096,21 +1093,34 @@ sockaddr_in* recieve_active_address_list(User* local)
 			ip[j++] = buff[i++];
 		}
 
-		while (buff[i] != ' ' && buff[i] != '\0') // If reading a port, copy every character into 'port' until reached a padding.
+		if (buff[i] == ':') // If reached a colon, continue, and the next loop will start inserting the port.
+			i++;
+
+		while (buff[i] != ' ' && buff[i] != '\0') // If reading a port, copy every character into 'port' until reached a space or EOF.
 		{
 			port[k++] = buff[i++];
 		}
-		printf("Current IP: %s || Current port: %s\n", ip, port); // For debugging.
+
 		init_sockaddr_in((addresses + (l++)), ip, (unsigned short)atoi(port)); // Initialize the address, input it into addresses[l], and increment l by 1.
+		
+
+		if (buff[i] == '\0') // If reached the end of the buffer, exit the main loop.
+			break;
+		
 		strcpy(ip, ""); // Reset the temp IP
 		strcpy(port, ""); // Reset the temp port
 		j, k = 0; // Reset temp IP and port indices.
 		i++; // Continue to next address.
-
 	}
 
+	printf("From the array of addresses: ");
+	for (i = 0; i < amount; i++)
+		printf("|%s:%hu|", inet_ntoa(addresses[i].sin_addr), ntohs(addresses[i].sin_port));
+	printf("\n");
 
-	// Invite the addresses from the recieved list:
+	// Invite the addresses from the recieved address list:
+	int found = FALSE; // A flag that represents if an address from the recieved address list (AKA 'addresses') is also in the list of active addresses inside local. 
+
 	for (i = 0; i < amount; i++)
 	{
 		for (j = 0; j < local->amount_active; j++)
@@ -1118,15 +1128,20 @@ sockaddr_in* recieve_active_address_list(User* local)
 			if ( strcmp( inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->active_addresses[j].sin_addr) ) == 0 ) // If there's an address that both local and remote user are connected to, skip it.
 			{
 				++i; // Continue to next address at the list local user recieved.
+				found = TRUE;
 			}
 
 			if (strcmp(inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->server_addr.sin_addr)) == 0) // If the current address is the local user's address, skip it also.
 			{
 				++i; // Continue to next address at the list local user recieved.
+				found = TRUE;
 			}
 		}
 
-		connect_to_remote_user(local, addresses[i]);
+		if (found == FALSE) // If 'addresses[i] wasn't the local user's own address or isn't already in 'local->active_addresses', invite the new address.
+			connect_to_remote_user(local, addresses[i]);
+		
+		found = FALSE; // reset the flag.
 	}
 
 	return addresses;
