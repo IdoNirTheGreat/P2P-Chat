@@ -39,22 +39,24 @@ enum error_codes {
 // All structures:
 typedef struct
 {
-	char username[USERNAME_MAX_LENGTH];		// User will input a username that will be shows in-chat.
+	char username[USERNAME_MAX_LENGTH];			// User will input a username that will be shows in-chat.
 	
-	SOCKET* active_sockets;					// Array of sockets used for sending and recieving data to multiple peers.
+	int amount_active;							// The number of clients currently connected to local user.
+
+	char** active_users;						// Array of strings used to save the connected users' usernames.
+
+	SOCKET* active_sockets;						// Array of sockets used for sending and recieving data to multiple peers.
 	
-	int amount_active;						// The number of clients currently connected to local user.
+	struct sockaddr_in* active_addresses;		// A pointer to the list of addresses that the local user is connected to.
 	
-	struct sockaddr_in* active_addresses;	// A pointer to the list of addresses that the local user is connected to.
-	
-	struct sockaddr_in server_addr;			// The local user's server's address, which includes the address'
+	struct sockaddr_in server_addr;				// The local user's server's address, which includes the address'
 											// family (AF_INET in this case), IP address, and port number.
 	
-	SOCKET server_socket;					// Is used only for accepting connections. Is used only to create one connection at a time.
+	SOCKET server_socket;						// Is used only for accepting connections. Is used only to create one connection at a time.
 	
-	int server_flag;						// To determine if server accepted a connection, so the client thread could be paused until the server is done managing the connection attempt.
+	int server_flag;							// To determine if server accepted a connection, so the client thread could be paused until the server is done managing the connection attempt.
 	
-	char* key;								// Key for future encryption feature.
+	char* key;									// Key for future encryption feature.
 }User;
 
 typedef struct sockaddr_in sockaddr_in;
@@ -111,7 +113,7 @@ void init_user(User* local)
 	local->amount_active = 0;								// Here we initialize the size of the array of client sockets to 0 since its null
 															// thus contains no items.
 
-	// Initialize client and server sockets.
+	// Initialize client sockets.
 	local->active_sockets = (SOCKET*)calloc(1, sizeof(SOCKET));						
 															// Here we initialize the sockets array to null. 
 															// We'll later use those sockets to send and 
@@ -120,11 +122,26 @@ void init_user(User* local)
 															// or if invited- the 'accept' function will return a
 															// new client socket.
 
-
+	// Initialize the 'active_addresses' array.
 	local->active_addresses = (sockaddr_in*)calloc(1, sizeof(sockaddr_in));							
 															// Here we initialize the list of addresses that the
 															// local user is connected to, to NULL - because when
 															// the user is initialized, it's not connected to anyone.
+
+	// Initialize the 'active_users' array of strings.
+	local->active_users = (char**)calloc(1, sizeof(char*));
+	if (local->active_users == NULL)
+	{
+		printf("Memory could not be allocated.\n");
+		exit(MALLOC_FAILED);
+	}
+
+	local->active_users[0] = (char*)calloc(USERNAME_MAX_LENGTH, sizeof(char));
+	if (local->active_users[0] == NULL)
+	{
+		printf("Memory could not be allocated.\n");
+		exit(MALLOC_FAILED);
+	}
 
 	// Create a 'sockaddr_in' for the servers address:
 	char* local_ip = get_private_ip();
@@ -777,20 +794,24 @@ void print_socket_error()
 
 }
 
-// Function recieves a pointer to an instance of User, and prints every address in the array active_addresses. 
+// Function recieves a pointer to an instance of User, and prints every username and address connected to the local user. 
 void print_connected_peers(User* local)
 {
-	printf("Peers currently connected:");
+	printf("Peers currently connected:\n");
+
+	if (local->amount_active == 0)
+	{
+		printf("(none)");
+	}
 	for (int i = 0; i < local->amount_active; i++)
 	{
-		printf(" %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
+		printf("Username: %s; address: %s:%hu", local->active_users[i], inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
 
-		if (i == (local->amount_active - 1)) // If current address is the last at the list, add a period at the end.
-			printf(".\n\n");
-
-		else // If not, add a a comma.
-			printf(",");
+		if (i != (local->amount_active - 1)) // If current address is the not last at the list, add a add a '|'.
+			printf("|");
 	}
+
+	printf(".\n\n");
 }
 
 // Function recieves a pointer to an instance of User, and prints every file descriptor's value in the array active_addresses. 
@@ -837,6 +858,7 @@ void help_menu()
 	printf("Help Menu:\n");
 	printf("To send a message in the chat room, just type it!\n");
 	printf("To invite someone, type '/invite'. Then, insert their IP address and port.\n");
+	printf("To see who you're connected with, type '/active'. ");
 	printf("Don't forget to insert the user's public IP if they're not in the same network as you.\n");
 	printf("FYI, The chat currently supports only IPV4 addresses.\n");
 	printf("To exit the chat, type '/exit'.\n\n");
@@ -868,6 +890,9 @@ void local_client(User* local)
 
 		if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 			help_menu();
+
+		if (!stricmp(buff, "/active")) // We use stricmp to compare strings while ignoring case.
+			print_connected_peers(local);
 
 		else
 			send_message(local, buff); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
@@ -973,7 +998,9 @@ char* get_public_ip()
 void username_swap(User* local, int is_inviter)
 {
 	// The function is divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa. This is because the steps are different whether you're the inviter or the invited one
-	
+
+	char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
+
 	if (is_inviter == TRUE) // If local user has invited the remote user:
 	{
 		// Send own username to new remote user connected:
@@ -989,9 +1016,8 @@ void username_swap(User* local, int is_inviter)
 		}
 
 		// Recieve username of new remote user connected:
-		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
 		error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, sizeof(remote_username), 0); // Recieve the username.
-		
+
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
 			printf("Connection has died.\n");
@@ -1005,9 +1031,8 @@ void username_swap(User* local, int is_inviter)
 	else // If the remote user has invited the local user:
 	{
 		// Recieve username of new remote user connected:
-		char remote_username[USERNAME_MAX_LENGTH] = { '\0' };
 		int error = recv(local->active_sockets[(local->amount_active - 1)], remote_username, sizeof(remote_username), 0); // Recieve the username.
-		
+
 		if (error == SOCKET_ERROR) // Error check to see if connection has died:
 		{
 			printf("Connection has died.\n");
@@ -1029,6 +1054,25 @@ void username_swap(User* local, int is_inviter)
 			return;
 		}
 	}
+
+	// Save the remote user's username:
+
+	// Reallocate memory for 'local->active_users':
+	local->active_users = (char**)realloc(local->active_users, (local->amount_active * sizeof(char*))); // Reallocate the amount of strings.
+	if (local->active_users == NULL)
+	{
+		printf("Memory could not be allocated.\n");
+		exit(MALLOC_FAILED);
+	}
+
+	local->active_users[(local->amount_active - 1)] = (char*)calloc(USERNAME_MAX_LENGTH, sizeof(char));
+	if (local->active_users[(local->amount_active - 1)] == NULL) // Allocate new memory for one new username.
+	{
+		printf("Memory could not be allocated.\n");
+		exit(MALLOC_FAILED);
+	}
+
+	strcpy(local->active_users[(local->amount_active - 1)], remote_username);
 
 }
 
