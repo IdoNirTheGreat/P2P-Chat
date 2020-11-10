@@ -1045,7 +1045,6 @@ void send_active_address_list(User* local)
 
 	encrypt(buff);
 
-	printf("Buffer to be sent: '%s'\n", buff);
 	send(local->active_sockets[(local->amount_active - 1)], buff, sizeof(buff), 0); // Sending the buffer.
 
 }
@@ -1113,7 +1112,7 @@ sockaddr_in* recieve_active_address_list(User* local)
 		i++; // Continue to next address.
 	}
 
-	printf("From the array of addresses: ");
+	printf("Addresses remote user is connected to: ");
 	for (i = 0; i < amount; i++)
 		printf("|%s:%hu|", inet_ntoa(addresses[i].sin_addr), ntohs(addresses[i].sin_port));
 	printf("\n");
@@ -1153,10 +1152,6 @@ void introduction(User* local, int is_inviter)
 	// * To make things more clear, the remote client we need to make the introduction with is the last in the active_addresses and active_sockets array.
 	// The functions that implement the steps of the introuction are divided to 2 different conditions - if the local user is the one who invited the remote user, or vice versa.
 	// This is because the steps are different whether you're the inviter or the invited one.
-
-	// For debugging only:
-	print_active_sockets(local);
-	print_connected_peers(local);
 
 	printf("\n* Introduction process has commenced: *\n\n");
 
