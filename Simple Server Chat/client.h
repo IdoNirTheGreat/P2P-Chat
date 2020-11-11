@@ -2,6 +2,8 @@
 
 #include "chatlib.h"
 
+char buff[MESSAGE_BUFF_MAX]; // User's buffer needs to be a global variable.
+
 // When this function is called it asks the user for an IP address which he wants to invite.
 void invite(User* local)
 {
@@ -49,7 +51,6 @@ void local_client(User* local)
 
 		// Scan for user's message
 		printf("| %s | %s: ", time, local->username);
-		char buff[MESSAGE_BUFF_MAX];
 		gets_s(buff, MESSAGE_BUFF_MAX);
 
 		if (!stricmp(buff, "/exit")) // To exit the chat.
@@ -59,16 +60,16 @@ void local_client(User* local)
 			exit(EXIT_SUCCESS);
 		}
 
-		if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
+		else if (!stricmp(buff, "/Invite")) // We use stricmp to compare strings while ignoring case.
 			invite(local);
 
-		if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
+		else if (!stricmp(buff, "/help")) // We use stricmp to compare strings while ignoring case.
 			help_menu();
 
-		if (!stricmp(buff, "/active")) // We use stricmp to compare strings while ignoring case.
+		else if (!stricmp(buff, "/active")) // We use stricmp to compare strings while ignoring case.
 			print_connected_peers(local);
 
-		else
+		else if (buff[0] != '/') // If user entered a command, don't send it.
 			send_message(local, buff); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
 	}
 }

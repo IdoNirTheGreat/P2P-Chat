@@ -838,7 +838,7 @@ void print_socket_error()
 // Function recieves a pointer to an instance of User, and prints every username and address connected to the local user. 
 void print_connected_peers(User* local)
 {
-	printf("Peers currently connected:\n");
+	printf("\nPeers currently connected:\n");
 
 	if (local->amount_active == 0)
 	{
@@ -846,7 +846,7 @@ void print_connected_peers(User* local)
 	}
 	for (int i = 0; i < local->amount_active; i++)
 	{
-		printf("Username: %s; address: %s:%hu", local->active_users[i], inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
+		printf("Username: %s ; address: %s:%hu", local->active_users[i], inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
 
 		if (i != (local->amount_active - 1)) // If current address is the not last at the list, add a add a '|'.
 			printf("|");
@@ -1190,7 +1190,14 @@ sockaddr_in* recieve_active_address_list(User* local)
 
 	printf("Addresses remote user is connected to: ");
 	for (i = 0; i < amount; i++)
-		printf("|%s:%hu|", inet_ntoa(addresses[i].sin_addr), ntohs(addresses[i].sin_port));
+	{
+		if(strcmp(inet_ntoa(addresses[i].sin_addr), inet_ntoa(local->server_addr.sin_addr)) == 0) // If the current address is the same as your address, print that the address is you.
+			printf("|%s:%hu (you)|", inet_ntoa(addresses[i].sin_addr), ntohs(addresses[i].sin_port));
+		
+		else
+			printf("|%s:%hu|", inet_ntoa(addresses[i].sin_addr), ntohs(addresses[i].sin_port));
+	}
+
 	printf("\n");
 
 	// Invite the addresses from the recieved address list:
@@ -1268,13 +1275,16 @@ void introduction(User* local, int is_inviter)
 // Function recieves local user, a buffer, and a pointer to the set , and distributes the buffer to each remote client.
 void send_message(User* local, char* buff)
 {
+	if (strcmp(buff, "") == 0) // If buffer is an empty string, don't send a string.
+		return;
+
 	char fbuff[MESSAGE_BUFF_MAX] = { '\0' }; // Final buffer that will be distributed.
 
 	char time[TIME_SIZE];
 	get_time(time, sizeof(time));
 
 	// Final-buffer is made out of a time-stamp, username and original buffer:
-	snprintf(fbuff, MESSAGE_BUFF_MAX, "| %s | %s: %s", time, local->username, buff);
+	snprintf(fbuff, MESSAGE_BUFF_MAX, "\n| %s | %s: %s\n", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
 		send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);

@@ -119,6 +119,9 @@ int main(int argc, char* argv[])
 			
 			else
 			{ 
+				// Suspend client:
+				SuspendThread(client_thread);
+
 				// Call the local server: 
 				local_server(connection);
 				
@@ -130,6 +133,9 @@ int main(int argc, char* argv[])
 				} 
 
 				connection->local_user = local;
+
+				// Resume client:
+				ResumeThread(client_thread);
 			} 
 		} 
 		
@@ -140,9 +146,9 @@ int main(int argc, char* argv[])
 			{ 
 				recieve_message(local->active_sockets[i]);
 			} 
-		} 
-		
 
+		} 
+	
 	}
 
 	return 0;
