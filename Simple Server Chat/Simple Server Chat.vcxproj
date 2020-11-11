@@ -142,6 +142,12 @@
   <ItemGroup>
     <ClCompile Include="ChatMain.c" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="chatlib.h" />
+    <ClInclude Include="client.h" />
+    <ClInclude Include="encryption.h" />
+    <ClInclude Include="server.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
