@@ -48,11 +48,10 @@ void local_client(User* local)
 		// Print hour and minute of message
 		char time[TIME_SIZE];
 		get_time(time, sizeof(time));
-
 		// Scan for user's message
-		printf("| %s | %s: ", time, local->username);
-		gets_s(buff, MESSAGE_BUFF_MAX);
-
+		printf(" > ");
+		memset(buff, 0 , sizeof(buff)); // Reset the buffer before writing to it.
+		gets_s(buff, sizeof(buff));
 		if (!stricmp(buff, "/exit")) // To exit the chat.
 		{
 			terminate_all_connections(local); // Close all connections.

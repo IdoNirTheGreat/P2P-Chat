@@ -1284,10 +1284,14 @@ void send_message(User* local, char* buff)
 	get_time(time, sizeof(time));
 
 	// Final-buffer is made out of a time-stamp, username and original buffer:
-	snprintf(fbuff, MESSAGE_BUFF_MAX, "\n| %s | %s: %s\n", time, local->username, buff);
+	snprintf(fbuff, MESSAGE_BUFF_MAX, "| %s | %s: %s\n", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
 		send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);
+
+	// Echo the sent message:
+	wprintf(L"\x1b[1F");
+	printf("%s", fbuff); // An escape code is printed before printing the message in order to write over the input that the user has entered.
 
 }
 
@@ -1305,11 +1309,23 @@ void recieve_message(SOCKET sender)
 
 // * Chat termination: *
 
-// This function terminates all connection of a user by closing sockets.
+// Function removes a connected remote user data from local user struct.
+void remove_user(User* local, char* username)
+{
+	
+}
+
+// Function terminates all connection of a user by closing sockets.
 void terminate_all_connections(User* local)
 {
 	closesocket(local->server_socket);
 	for (int i = 0; i < local->amount_active; i++)
 		closesocket(local->active_sockets[i]);
 	WSACleanup();
+}
+
+// Function is called when local user chooses to exit the chat.
+void exit_chat(User* local)
+{
+
 }

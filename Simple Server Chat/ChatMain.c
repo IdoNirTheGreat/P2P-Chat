@@ -43,6 +43,26 @@ int main(int argc, char* argv[])
 
 	printf("%s\n%s\n%s\n%s\n%s\n%s\n", header[0], header[1], header[2], header[3], header[4], header[5]);*/
 	
+	// Set output mode to handle virtual terminal sequences
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut == INVALID_HANDLE_VALUE)
+	{
+		return GetLastError();
+	}
+
+	DWORD dwMode = 0;
+	if (!GetConsoleMode(hOut, &dwMode))
+	{
+		return GetLastError();
+	}
+
+	dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	if (!SetConsoleMode(hOut, dwMode))
+	{
+		return GetLastError();
+	}
+
+
 	printf("\nWelcome to Ido Nir's P2P Chat!\n\n");
 
 	// Initiate Windows socket module:
@@ -119,8 +139,8 @@ int main(int argc, char* argv[])
 			
 			else
 			{ 
-				// Suspend client:
-				SuspendThread(client_thread);
+				// Terminate client:
+				TerminateThread(client_thread, 0);
 
 				// Call the local server: 
 				local_server(connection);
@@ -134,8 +154,15 @@ int main(int argc, char* argv[])
 
 				connection->local_user = local;
 
-				// Resume client:
-				ResumeThread(client_thread);
+				// Restart client:
+				HANDLE client_thread = CreateThread(
+					NULL,									// Default security attributes
+					0,										// Use default stack size  
+					(LPTHREAD_START_ROUTINE)local_client,	// Thread function name
+					local,									// Argument to thread function 
+					0,										// Create thread and run it instantly
+					&client_thread_id						// Returns the thread identifier 
+				);
 			} 
 		} 
 		
