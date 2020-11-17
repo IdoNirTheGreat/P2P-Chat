@@ -60,6 +60,7 @@ typedef struct Connection
 // * System functions: *
 void init_WSA(WSADATA* wsaData);
 void get_time(char* buff, size_t buff_size);
+void enable_vt();
 
 // * Inititiation functions: *
 void init_user(User* local);
@@ -122,6 +123,28 @@ void get_time(char* buff, size_t buff_size)
 	sprintf_s(buff, buff_size, "%02d:%02d", time.wHour, time.wMinute);
 }
 
+// Function enables the use of ANSI.SYS (AKA the use of VT escape codes in cmd).
+void enable_vt()
+{
+	// Set output mode to handle virtual terminal sequences
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut == INVALID_HANDLE_VALUE)
+	{
+		return GetLastError();
+	}
+
+	DWORD dwMode = 0;
+	if (!GetConsoleMode(hOut, &dwMode))
+	{
+		return GetLastError();
+	}
+
+	dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	if (!SetConsoleMode(hOut, dwMode))
+	{
+		return GetLastError();
+	}
+}
 
 
 

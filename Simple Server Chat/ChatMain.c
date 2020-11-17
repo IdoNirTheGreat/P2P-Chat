@@ -31,6 +31,9 @@ enum error_codes {
 // Main function:
 int main(int argc, char* argv[])
 {
+	// Enable use of escape codes:
+	enable_vt();
+
 	/*char* header[6];
 	header[0] = " _____    _         _   _ _      _       _____  _____  _____   _____ _           _   ";
 	header[1] = "|_   _|  | |       | \ | (_)    ( )     | ___ \/ __  \| ___ \ /  __ \ |         | |  ";
@@ -43,26 +46,6 @@ int main(int argc, char* argv[])
 
 	printf("%s\n%s\n%s\n%s\n%s\n%s\n", header[0], header[1], header[2], header[3], header[4], header[5]);*/
 	
-	// Set output mode to handle virtual terminal sequences
-	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hOut == INVALID_HANDLE_VALUE)
-	{
-		return GetLastError();
-	}
-
-	DWORD dwMode = 0;
-	if (!GetConsoleMode(hOut, &dwMode))
-	{
-		return GetLastError();
-	}
-
-	dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-	if (!SetConsoleMode(hOut, dwMode))
-	{
-		return GetLastError();
-	}
-
-
 	printf("\nWelcome to Ido Nir's P2P Chat!\n\n");
 
 	// Initiate Windows socket module:
