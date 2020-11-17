@@ -11,6 +11,20 @@ void local_server(New_Connection* connection)
 												// Server flag state will return to FALSE after the connection is either denied,
 												// or after the introduction has ended after connection was granted.
 
+	// TODO: Remove comments before release:
+	//// If user invited it's own server (if ip address of remote user whom invited is the same as the local user's ip address):
+	//if ( (strcmp(inet_ntoa(connection->remote_user.sin_addr), inet_ntoa(connection->local_user->server_addr.sin_addr)) == 0) && (ntohs(connection->local_user->server_addr.sin_port) == ntohs(connection->remote_user.sin_port)))
+	//{
+	//	printf("You cannot invite yourself to a chat!\n");
+	//	printf("\n* Invitation process has ended. *\n\n");
+	//	
+	//	// Server flag state is returned to FALSE:
+	//	connection->local_user->server_flag = FALSE;
+
+	//	return; // To end run of function here and not continue;
+	//}
+
+	// Any valid case of invitation:
 	// We must accept the connection at the first place, and then if the user doesn't want to accept the connection we will close it.
 
 	char popup_message[MESSAGE_BUFF_MAX] = { '\0' };
