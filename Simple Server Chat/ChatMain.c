@@ -41,11 +41,11 @@ int main(int argc, char* argv[])
 	header[3] = "  | | / _` |/ _ \  | . ` | | '__| / __| |  __/   / /  |  __/  | |   | '_ \ / _` | __|";
 	header[4] = " _| || (_| | (_) | | |\  | | |    \__ \ | |    ./ /___| |     | \__/\ | | | (_| | |_ ";
 	header[5] = "    \___/\__,_|\___/  \_| \_/_|_|    |___/ \_|    \_____/\_|      \____/_| |_|\__,_|\__|";
-                                                                                                                                                    
-                                                                                                                                                    
+
+
 
 	printf("%s\n%s\n%s\n%s\n%s\n%s\n", header[0], header[1], header[2], header[3], header[4], header[5]);*/
-	
+
 	printf("\nWelcome to Ido Nir's P2P Chat!\n\n");
 
 	// Initiate Windows socket module:
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
 	if (local == NULL)
 		exit(MALLOC_FAILED);
 	init_user(local);
-	
+
 	help_menu();
 	printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n                       Chat started!\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
@@ -65,7 +65,7 @@ int main(int argc, char* argv[])
 	HANDLE client_thread = CreateThread(
 		NULL,									// Default security attributes
 		0,										// Use default stack size  
-		(LPTHREAD_START_ROUTINE) local_client,	// Thread function name
+		(LPTHREAD_START_ROUTINE)local_client,	// Thread function name
 		local,									// Argument to thread function 
 		0,										// Create thread and run it instantly
 		&client_thread_id						// Returns the thread identifier 
@@ -82,12 +82,12 @@ int main(int argc, char* argv[])
 		exit(MALLOC_FAILED);
 	}
 	connection->local_user = local;
-			
+
 	int sockaddr_in_size = sizeof(sockaddr_in);
 
 	// Create fd_sets: 
-	fd_set read_set; // Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
-	fd_set write_set;	// Will contain all client sockets (only to send data to them).
+	fd_set read_set = { 0, 0 }; // Will contain at the first place the local server's socket, then all client sockets (only to recieve data from them).
+	fd_set write_set = { 0, 0 };	// Will contain all client sockets (only to send data to them).
 
 	while (TRUE) // Main loop:
 	{
@@ -99,8 +99,18 @@ int main(int argc, char* argv[])
 		FD_SET(local->server_socket, &read_set); // The server socket will be inserted first into 'read_set'.
 		for (int i = 0; i < local->amount_active; i++) // Insert all other active sockets. 
 		{
-			FD_SET(local->active_sockets[i], &read_set);
-			FD_SET(local->active_sockets[i], &write_set);
+			if (local->active_sockets[i] == SOCKET_ERROR) // If a connection error has occurred with a user, remove it.
+			{
+				printf("An error has occurred about the connection with %s\n.", local->active_users[i]);
+				print_socket_error();
+				remove_user(local, local->active_users[i]);
+			}
+
+			else
+			{
+				FD_SET(local->active_sockets[i], &read_set);
+				FD_SET(local->active_sockets[i], &write_set);
+			}
 		} 
 		
 		// Call and error check the 'select' method: 
@@ -123,6 +133,7 @@ int main(int argc, char* argv[])
 			else
 			{ 
 				// Terminate client:
+				CloseHandle(client_thread);
 				TerminateThread(client_thread, 0);
 
 				// Call the local server: 
@@ -153,8 +164,25 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < local->amount_active; i++) 
 		{
 			if (FD_ISSET(local->active_sockets[i], &read_set)) // If socket is ready to be read from: 
-			{ 
-				recieve_message(local->active_sockets[i]);
+			{
+				char message[MESSAGE_BUFF_MAX] = { "\0" };
+				strcpy(message, recieve_message(local->active_sockets[i]));
+
+				// If the recieved message was an "exit" message, disconnect the user and remove it from the lists inside local. 
+
+				// Create an indentical exit message for active_user[i]:
+				size_t size = strlen(local->active_users[i]) + strlen(" has left the chat.\n");
+				char* temp_message = (char*)calloc(size, sizeof(char));
+				if (temp_message == NULL)
+					exit(MALLOC_FAILED);
+
+				snprintf(temp_message, size, "%s has left the chat.\n", local->username);
+				
+				// If the message recieved is identical to the one created, remove the user:
+				if (!strcmp(temp_message, message))
+					remove_user(local, local->active_users[i]);
+
+				free(temp_message);
 			} 
 
 		} 

@@ -60,7 +60,7 @@ typedef struct Connection
 // * System functions: *
 void init_WSA(WSADATA* wsaData);
 void get_time(char* buff, size_t buff_size);
-void enable_vt();
+DWORD enable_vt();
 
 // * Inititiation functions: *
 void init_user(User* local);
@@ -89,7 +89,7 @@ void introduction(User* local, int is_inviter);
 
 // * Messaging *
 void send_message(User* local, char* buff);
-void recieve_message(SOCKET sender);
+char* recieve_message(SOCKET sender);
 
 // * Chat termination: *
 
@@ -124,7 +124,7 @@ void get_time(char* buff, size_t buff_size)
 }
 
 // Function enables the use of ANSI.SYS (AKA the use of VT escape codes in cmd).
-void enable_vt()
+DWORD enable_vt()
 {
 	// Set output mode to handle virtual terminal sequences
 	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -144,6 +144,8 @@ void enable_vt()
 	{
 		return GetLastError();
 	}
+
+	return 0;
 }
 
 
@@ -936,8 +938,7 @@ char* get_username()
 // Function recieves the 'local' user and a socket 's'.
 // The socket 's' is either the socket that was returned by the 'accept' function in the local server's thread,
 // OR the temp socket that was used to create the connection (from the function 'connect_to_remote_user') in the local client's thread.
-// The function re-allocates the array of active sockets in 'local' and inserts the new socket.
-// After that, the function re-allocates the array of active addresses in 'local' and inserts the address of the remote client we have just connected to.
+// The function re-allocates the array of active sockets and active_addresses in 'local', then inserts the data of the new user (the username is inserted in the function username_swap).
 void insert_remote_user(User* local, SOCKET s, sockaddr_in remote_user)
 {
 	++(local->amount_active); // Increment the size of the client-sockets array by one.
@@ -1139,7 +1140,7 @@ void send_active_address_list(User* local)
 
 	for (int i = 0; i < local->amount_active; i++)
 	{
-		len += sprintf_s(buff, (MESSAGE_BUFF_MAX - len), " %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
+		len += sprintf_s(buff, (int)(MESSAGE_BUFF_MAX - len), " %s:%hu", inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
 	}
 
 	encrypt(buff);
@@ -1287,7 +1288,7 @@ void introduction(User* local, int is_inviter)
 
 	}
 
-	printf("\n* Introduction process has ended. *\n\n");
+	printf("\n* Introduction process has ended. *\n\n\n");
 }
 
 
@@ -1313,29 +1314,54 @@ void send_message(User* local, char* buff)
 		send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);
 
 	// Echo the sent message:
-	wprintf(L"\x1b[1F");
-	printf("%s", fbuff); // An escape code is printed before printing the message in order to write over the input that the user has entered.
+	wprintf(L"\x1b[1F"); // An escape code is printed before printing the message in order to write over the input that the user has entered.
+	printf("%s", fbuff); 
 
 }
 
 // Function recieves the socket connected to user that sent a message, and prints the message.
-void recieve_message(SOCKET sender)
+char* recieve_message(SOCKET sender)
 {
-	char buff[MESSAGE_BUFF_MAX] = { '\0' }; // The buffer used to recieve the incoming message
+	char buff[MESSAGE_BUFF_MAX] = { '\0' };
 	recv(sender, buff, sizeof(buff), 0); // Recieve the incoming buffer into 'buff'.
-	//decrypt(buff); // For when the decryption function will be implemented.
+	decrypt(buff);
+	wprintf(L"\x1b[1F"); // An escape code is printed before printing the message in order to write over the input that the user has entered.
 	printf("%s\n", buff);
+
+	char* message = (char*)calloc(MESSAGE_BUFF_MAX, sizeof(char)); // The buffer used to recieve the incoming message
+	if (message == NULL) exit(MALLOC_FAILED);
+	strcpy(message, buff);
+	return message;
 }
-
-
 
 
 // * Chat termination: *
 
-// Function removes a connected remote user data from local user struct.
+// Function removes a connected remote user data from local user instance.
 void remove_user(User* local, char* username)
 {
-	
+	// Search for the given username:
+	for (int i = 0; i < local->amount_active; i++)
+	{
+		if (!strcmp(username, local->active_users[i])) // If reached the user:
+		{
+			// Disconnect the user:
+			closesocket(local->active_sockets[i]);
+
+			// Decrease amount_active by one:
+			--local->amount_active;
+
+			// Re-allocate the size of the lists:
+			local->active_sockets = (SOCKET*)realloc(local->active_sockets, (local->amount_active * sizeof(SOCKET)));
+			local->active_addresses = (sockaddr_in*)realloc(local->active_addresses, (local->amount_active * sizeof(sockaddr_in)));
+			local->active_users = (char**)realloc(local->active_users, (local->amount_active * sizeof(char*))); // Reallocate the amount of strings.
+		}
+			
+		// Move every next user back one index:
+		local->active_sockets[i] = local->active_sockets[i + 1];
+		local->active_addresses[i] = local->active_addresses[i + 1];
+		local->active_users[i] = local->active_users[i + 1];
+	}
 }
 
 // Function terminates all connection of a user by closing sockets.
@@ -1350,5 +1376,12 @@ void terminate_all_connections(User* local)
 // Function is called when local user chooses to exit the chat.
 void exit_chat(User* local)
 {
+	int size = strlen(local->username) + strlen(" has left the chat.\n");
+	char* exit_message = (char*)calloc(size, sizeof(char));
+	if (exit_message == NULL)
+		exit(MALLOC_FAILED);
 
+	snprintf(exit_message, size, "%s has left the chat.\n", local->username);
+	send_message(local, exit_message);
+	free(exit_message);
 }
