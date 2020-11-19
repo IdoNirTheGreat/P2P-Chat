@@ -54,6 +54,7 @@ void local_client(User* local)
 		gets_s(buff, sizeof(buff));
 		if (!stricmp(buff, "/exit")) // To exit the chat.
 		{
+			exit_message(local); // Send an exit message to all connected users.
 			terminate_all_connections(local); // Close all connections.
 			WSACleanup(); // Close the Winsock module.
 			exit(EXIT_SUCCESS);
@@ -68,7 +69,7 @@ void local_client(User* local)
 		else if (!stricmp(buff, "/active")) // We use stricmp to compare strings while ignoring case.
 			print_connected_peers(local);
 
-		else if (buff[0] != '/') // If user entered a command, don't send it.
+		else if (buff[0] != '/') // If user input was not a command, send it as a message:
 			send_message(local, buff); // Function recieves local user, a buffer, and a set which contains array of sockets connected to remote users, and distributes the buffer to each remote client.
 	}
 }

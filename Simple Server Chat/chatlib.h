@@ -15,7 +15,7 @@
 #define IP_ADDR_BUFF_SIZE 16
 #define MESSAGE_BUFF_MAX 1024 
 #define TIME_SIZE 8
-#define IPIFY_URL "api.ipify.org"
+#define IPIFY_URL "ipify.org"
 
 
 // ** All structures: **
@@ -240,7 +240,7 @@ void init_user(User* local)
 
 	int size = sizeof(local->server_addr);
 	getsockname(local->server_socket, (struct sockaddr*)&local->server_addr, &size);
-	printf("\nLocal Server is listening! Your address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), ntohs(local->server_addr.sin_port));
+	printf("\nLocal Server is listening! Your private ip address is %s:%hu\n", inet_ntoa(local->server_addr.sin_addr), ntohs(local->server_addr.sin_port));
 	printf("To invite users out of your network, you must get invited by your public ip: %s. \n\n", get_public_ip());
 }
 
@@ -302,38 +302,53 @@ char* get_private_ip()
 //	the network could connect to a machine outside of the network.
 char* get_public_ip()
 {
-	//// We'll use the Ipify API for this:
-	//
-	//// Retrieve Ipify IP:
-	//struct hostent* ipify_info = gethostbyname(IPIFY_URL);
-	//printf("Host name: %s\n", ipify_info->h_name);
-	//printf("IP address: %s\n", inet_ntoa(*((struct in_addr*)ipify_info->h_addr)));
-	//sockaddr_in ipify;
-	//init_sockaddr_in(&ipify, ipify_info->h_addr, 443);
+	// We'll use the Ipify API for this:
+	
+	// Retrieve Ipify IP:
+	struct hostent* ipify_info = gethostbyname(IPIFY_URL);
+	char ipify_ip[IP_ADDR_BUFF_SIZE] = { '\0' };
+	strcpy(ipify_ip, inet_ntoa(*((struct in_addr*)ipify_info->h_addr)));
+	printf("IP address of Ipify.org: %s\n", ipify_ip);
+	sockaddr_in ipify;
+	init_sockaddr_in(&ipify, ipify_ip, 80);
 
-	//// Create the socket for the request:
-	//SOCKET temp = socket(AF_INET, SOCK_STREAM, 0);
+	// Create the socket for the request:
+	SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
 
-	//// Create connection:
-	//if (!connect(temp, (struct sockaddr*)&ipify, sizeof(ipify)))
-	//{
-	//	printf("Connection with 'Ipify.org' has failed.\n");
-	//	return "0.0.0.0";
-	//}
+	// Create connection:
+	int error = connect(s, (struct sockaddr*)&ipify, sizeof(ipify));
+	if (error == SOCKET_ERROR)
+	{
+		printf("Connection with 'Ipify.org' has failed.\n");
+		print_socket_error();
+		return "0.0.0.0";
+	}
 
-	////// Send request:
-	////char* request = "GET / HTTP/1.0\r\nHost: api.ipify.org \r\n User-Agent: " AGENT_NAME "\r\n\r\n";
-	////send(temp, "GET / HTTP / 1.0\r\n", (int)strlen("GET / HTTP/1.0\r\n"), 0); // The request is an empty string.
+	// Send request:
+	char* request = "GET / HTTP/1.1\r\n";
+	error = send(s, request, sizeof(request), 0);
+	if (error == SOCKET_ERROR)
+	{
+		printf("Connection with 'Ipify.org' has failed.\n");
+		print_socket_error();
+		return "0.0.0.0";
+	}
 
-	//// Recieve IP from Ipify server:
-	//char public_ip[IP_ADDR_BUFF_SIZE] = { '\0' };
-	//recv(temp, public_ip, IP_ADDR_BUFF_SIZE, 0);
+	// Recieve IP from Ipify server:
+	char public_ip[IP_ADDR_BUFF_SIZE] = { '\0' };
+	error = recv(s, public_ip, sizeof(public_ip), 0);
+	if (error == SOCKET_ERROR)
+	{
+		printf("Connection with 'Ipify.org' has failed.\n");
+		print_socket_error();
+		return "0.0.0.0";
+	}
+	printf("%s\n", public_ip);
 
-	//// Close the socket to leave no open connections:
-	//close(temp);
+	// Close the socket to leave no open connections:
+	close(s);
 
-	//return public_ip;
-	return "0.0.0.0";
+	return public_ip;
 }
 
 
@@ -871,7 +886,7 @@ void print_connected_peers(User* local)
 	}
 	for (int i = 0; i < local->amount_active; i++)
 	{
-		printf("Username: %s ; address: %s:%hu", local->active_users[i], inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port));
+		printf("Username: %s | address: %s:%hu | FD value: %d\n", local->active_users[i], inet_ntoa(local->active_addresses[i].sin_addr), ntohs(local->active_addresses[i].sin_port, (int)local->active_sockets[i]));
 
 		if (i != (local->amount_active - 1)) // If current address is the not last at the list, add a add a '|'.
 			printf("|");
@@ -1311,7 +1326,12 @@ void send_message(User* local, char* buff)
 	snprintf(fbuff, MESSAGE_BUFF_MAX, "| %s | %s: %s\n", time, local->username, buff);
 
 	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
-		send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);
+	{
+		int bytes = send(local->active_sockets[i], fbuff, (int)strlen(fbuff), 0);
+		if (bytes == SOCKET_ERROR)
+			printf("The message could not be sent to %s.\n\n", local->active_users[i]);
+	}
+		
 
 	// Echo the sent message:
 	wprintf(L"\x1b[1F"); // An escape code is printed before printing the message in order to write over the input that the user has entered.
@@ -1374,14 +1394,20 @@ void terminate_all_connections(User* local)
 }
 
 // Function is called when local user chooses to exit the chat.
-void exit_chat(User* local)
+void exit_message(User* local)
 {
 	int size = strlen(local->username) + strlen(" has left the chat.\n");
-	char* exit_message = (char*)calloc(size, sizeof(char));
-	if (exit_message == NULL)
+	char* message = (char*)calloc(size, sizeof(char));
+	if (message == NULL)
 		exit(MALLOC_FAILED);
 
-	snprintf(exit_message, size, "%s has left the chat.\n", local->username);
-	send_message(local, exit_message);
-	free(exit_message);
+	snprintf(message, size, "%s has left the chat.\n *", local->username);
+	encrypt(message);
+	for (int i = 0; i < local->amount_active; i++) // Send to each remote user the message.
+		send(local->active_sockets[i], message, (int)strlen(message), 0);
+
+	// Echo the sent message:
+	wprintf(L"\x1b[1F"); // An escape code is printed before printing the message in order to write over the input that the user has entered.
+	printf("%s", message);
+	free(message);
 }
